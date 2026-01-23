@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Google Calendar Credentials - NEVER COMMIT!
+credentials.json
+token.pickle
+
+# Environment variables
+.env
+
+# Logs
+*.log
+agent.log
+agent_verbose.log
+nohup.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+{
+            "empresa": {
+                "nombre": "Sisnova",
+                "descripcion": "Somos una consultora especializada en Transformación Digital para Pymes, negocios y emprendimientos de Latinoamérica que necesitan resultados rápidos, medibles y sin complicaciones técnicas",
+                "servicios": [
+                    "Chatbots con agentes IA multicanal (WhatsApp, Instagram, TikTok, Facebook, y mas)",
+                    "Automatización de manejo de redes sociales",
+                    "Automatización de procesos repetitivos incluyendo integraciones con sistemas existentes"
+                ],
+                "beneficios": [
+                    "Ahorro de hasta 70% en costos de atención",
+                    "Respuesta instantánea a clientes",
+                    "Escalabilidad sin límites"
+                ]
+            }
+        }
