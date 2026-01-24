@@ -1301,3 +1301,14 @@ Para preguntas o soporte, contactar al equipo de desarrollo interno.
 - ✅ Soporte multi-LLM (HuggingFace, Anthropic, OpenAI, Gemini)
 - ✅ Gestión de memoria con límite de 50 mensajes
 - ✅ Integración Evolution API
+
+##### Mejoras futuras planificadas
+- Concurrencia y escalabilidad
+
+Opción                | Complejidad | Mensajes/min | Usuarios simultáneos | Setup
+Flask básico (actual) | Baja        | 6-20         |   1-3                | Listo en 10 min
+Flask + Threading     | Baja        | 60-120       |    10-20             | 15 min
+Flask + Celery + Redis| Media       | 300-600      |    50-100            | 30 min
+FastAPI + AsyncIO     | Media       | 200-400      |    30-60             | 20 min
+FastAPI + Celery      | Alta        | 600-1200     |    100-500           | 1 hora
+

@@ -1,7 +1,9 @@
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from fastapi import FastAPI, Request
+from flask import Flask, request, jsonify
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 import logging
 from logging.handlers import RotatingFileHandler
 import httpx
@@ -10,6 +12,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_community.llms import HuggingFaceHub
 from langchain_community.chat_models import ChatHuggingFace
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_classic.memory import ConversationBufferMemory
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request as GoogleRequest
@@ -32,11 +35,8 @@ except Exception as e:
 
 # Importar herramientas del agente
 from agent_tools import (
-    enviar_link_reserva,
-    enviar_link_reserva_botones,
-    registrar_lead_en_crm,
-    registrar_lead_en_sheets,
-    user_lead_info
+    extract_lead_info,
+    trigger_booking_tool
 )
 
 # Cargar variables de entorno
@@ -54,7 +54,6 @@ except json.JSONDecodeError as e:
     print(f"⚠️  Error al parsear conocimiento_negocio.json: {e}")
 
 # Configuración
-app = FastAPI()
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "your_api_key")
 EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "default")
@@ -70,35 +69,17 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_openai_key")
 # Límite de mensajes en memoria por conversación
 MAX_MESSAGES_PER_CONVERSATION = int(os.getenv("MAX_MESSAGES", "50"))  # Límite de mensajes en memoria
 
-# URL de reservas de Google Calendar
-GOOGLE_BOOKING_URL = os.getenv("GOOGLE_BOOKING_URL", "")
-
-# Configuración de Krayin CRM
-KRAYIN_API_URL = os.getenv("KRAYIN_API_URL", "")
-KRAYIN_API_TOKEN = os.getenv("KRAYIN_API_TOKEN", "")
-KRAYIN_PIPELINE_ID = os.getenv("KRAYIN_PIPELINE_ID", "1")  # ID del pipeline de leads
-KRAYIN_STAGE_ID = os.getenv("KRAYIN_STAGE_ID", "1")  # ID de la etapa "Nuevo Lead"
-KRAYIN_USER_ID = os.getenv("KRAYIN_USER_ID", "1")  # ID del usuario asignado
-KRAYIN_LEAD_SOURCE_ID = os.getenv("KRAYIN_LEAD_SOURCE_ID", "5")  # ID de la fuente (ej: WhatsApp)
-KRAYIN_LEAD_TYPE_ID = os.getenv("KRAYIN_LEAD_TYPE_ID", "1")  # ID del tipo
-
-# Bandera para habilitar registro en CRM al reservar cita
-CRM_AUTO_REGISTER = os.getenv("CRM_AUTO_REGISTER", "true").lower() == "true"
-
-# Configuración de Google Sheets
-GOOGLE_SHEETS_ENABLED = os.getenv("GOOGLE_SHEETS_ENABLED", "false").lower() == "true"
-
 # Configuración para transcripción de audio
 TRANSCRIPTION_ENABLED = os.getenv("TRANSCRIPTION_ENABLED", "true").lower() == "true"
 TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")  # opciones: openai, whisper-local
 
-# Almacenamiento simple de memoria por usuario
+# Almacenamiento simple de memoria por usuario (thread-safe con Lock)
 user_memories: Dict[str, Dict] = {}
 
 # Configurar logging con rotación de archivos para evitar llenar el disco
 # Mantiene hasta 10MB por archivo, con 5 archivos de respaldo (total: 50MB máximo)
 rotating_handler = RotatingFileHandler(
-    'agent_verbose.log',
+    'sisagent_verbose.log',
     maxBytes=10*1024*1024,  # 10 MB por archivo
     backupCount=5,  # Mantener 5 archivos de respaldo (agent_verbose.log.1, .2, etc.)
     encoding='utf-8'
@@ -111,7 +92,7 @@ console_handler.setLevel(logging.DEBUG)
 console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
 
 # Configurar el logger específico sin usar basicConfig para evitar duplicación
-logger = logging.getLogger('python-agent')
+logger = logging.getLogger('sisagent')
 logger.setLevel(logging.DEBUG)
 
 # Limpiar handlers existentes para evitar duplicación
@@ -131,8 +112,19 @@ else:
     logger.info(f"✅ AGENT_INSTRUCTION cargado correctamente")
     logger.debug(f"Primeros 200 chars: {AGENT_INSTRUCTION[:200]}")
 
+# Configuración
+app = Flask(__name__)
 
-async def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, instance_name: str = None):
+# Pool de threads para manejar múltiples mensajes en paralelo
+# CPU de 4 núcleos (max_workers=10)
+# CPU de 8+ núcleos (max_workers=20)
+executor = ThreadPoolExecutor(max_workers=4)  # CPU de 2 núcleos - 10 mensajes simultáneos
+
+# Locks para thread-safety
+memory_lock = Lock()
+lead_lock = Lock()
+
+def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, instance_name: str = None):
     """Envía un mensaje a través de Evolution API.
     
     Soporta:
@@ -192,29 +184,28 @@ async def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None,
     seen = set()
     candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
-    async with httpx.AsyncClient(verify=False) as client:
-        for candidate in candidates:
-            # Usar siempre sendText (Evolution API no tiene endpoint sendButtons separado)
-            url = f"{EVOLUTION_API_URL}/message/sendText/{candidate}"
-            endpoint_type = "sendText (with button link)" if is_button_message else "sendText"
-            
+    for candidate in candidates:
+        # Usar siempre sendText (Evolution API no tiene endpoint sendButtons separado)
+        url = f"{EVOLUTION_API_URL}/message/sendText/{candidate}"
+        endpoint_type = "sendText (with button link)" if is_button_message else "sendText"
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30.0, verify=False)
+            status = response.status_code
+            # Log full body for non-2xx to help debugging
+            text = None
             try:
-                response = await client.post(url, json=payload, headers=headers, timeout=30.0)
-                status = response.status_code
-                # Log full body for non-2xx to help debugging
-                text = None
-                try:
-                    text = response.json()
-                except Exception:
-                    text = response.text
+                text = response.json()
+            except Exception:
+                text = response.text
 
-                logger.debug("Tried %s with candidate=%s status=%s response=%s", endpoint_type, candidate, status, str(text)[:200])
+            logger.debug("Tried %s with candidate=%s status=%s response=%s", endpoint_type, candidate, status, str(text)[:200])
 
-                if 200 <= status < 300:
-                    return text
-                # Continue trying next candidate on 4xx/5xx
-            except Exception as e:
-                logger.exception("Exception when sending with candidate %s: %s", candidate, e)
+            if 200 <= status < 300:
+                return text
+            # Continue trying next candidate on 4xx/5xx
+        except Exception as e:
+            logger.exception("Exception when sending with candidate %s: %s", candidate, e)
 
     # If none succeeded, return an informative structure
     msg_type = "button message" if is_button_message else "text message"
@@ -222,7 +213,7 @@ async def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None,
     return {"status": "failed", "tried": candidates, "message_type": msg_type}
 
 
-async def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]:
+def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]:
     """
     Transcribe un mensaje de audio a texto
     
@@ -251,13 +242,12 @@ async def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optiona
             audio_data = base64.b64decode(audio_base64)
         elif audio_url:
             logger.debug(f"[AUDIO] Descargando audio desde URL: {audio_url[:50]}...")
-            async with httpx.AsyncClient(verify=False) as client:
-                response = await client.get(audio_url, timeout=30.0)
-                if response.status_code == 200:
-                    audio_data = response.content
-                else:
-                    logger.error(f"[AUDIO] Error descargando audio: status={response.status_code}")
-                    return None
+            response = requests.get(audio_url, timeout=30.0, verify=False)
+            if response.status_code == 200:
+                audio_data = response.content
+            else:
+                logger.error(f"[AUDIO] Error descargando audio: status={response.status_code}")
+                return None
         
         if not audio_data:
             logger.error("[AUDIO] No se pudo obtener datos de audio")
@@ -331,39 +321,41 @@ async def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optiona
         return None
 
 
-def get_memory(user_id: str):
-    """Obtiene o crea memoria para un usuario"""
-    logger.debug("get_memory called for user_id=%s", user_id)
-    if user_id not in user_memories:
-        # Intentar usar ConversationBufferMemory si está disponible
-        try:
-            from langchain.memory import ConversationBufferMemory
-            memory_obj = ConversationBufferMemory(
-                memory_key="chat_history",
-                return_messages=True
-            )
-            # Agregar flag para rastrear si se envió link de reserva
-            memory_obj.booking_sent = False
-            user_memories[user_id] = memory_obj
-        except Exception:
-            # Fallback simple: almacenar mensajes en memoria con la misma API mínima
-            class _SimpleChatMemory:
-                def __init__(self):
-                    self.messages: List = []
+def get_memory(user_id: str) -> ConversationBufferMemory:
+    """Obtiene o crea memoria para un usuario (thread-safe)"""
+    with memory_lock:
+        logger.debug("get_memory called for user_id=%s", user_id)
+        if user_id not in user_memories:
+            # Intentar usar ConversationBufferMemory si está disponible
+            try:
+                # Ya importado al inicio del archivo
+                memory_obj = ConversationBufferMemory(
+                    memory_key="chat_history",
+                    return_messages=True
+                )
+                # Agregar flag para rastrear si se envió link de reserva
+                memory_obj.booking_sent = False
+                user_memories[user_id] = memory_obj
+                logger.debug("Created ConversationBufferMemory with booking_sent=False for user_id=%s", user_id)
+            except Exception:
+                # Fallback simple: almacenar mensajes en memoria con la misma API mínima
+                class _SimpleChatMemory:
+                    def __init__(self):
+                        self.messages: List = []
 
-                def add_user_message(self, text: str):
-                    self.messages.append(HumanMessage(content=text))
+                    def add_user_message(self, text: str):
+                        self.messages.append(HumanMessage(content=text))
 
-                def add_ai_message(self, text: str):
-                    self.messages.append(AIMessage(content=text))
+                    def add_ai_message(self, text: str):
+                        self.messages.append(AIMessage(content=text))
 
-            class _SimpleMemory:
-                def __init__(self):
-                    self.chat_memory = _SimpleChatMemory()
-                    self.booking_sent = False
+                class _SimpleMemory:
+                    def __init__(self):
+                        self.chat_memory = _SimpleChatMemory()
+                        self.booking_sent = False
 
-            user_memories[user_id] = _SimpleMemory()
-            logger.debug("Created simple in-memory conversation memory for user_id=%s", user_id)
+                user_memories[user_id] = _SimpleMemory()
+                logger.debug("Created simple in-memory conversation memory with booking_sent=False for user_id=%s", user_id)
 
     return user_memories[user_id]
 
@@ -403,9 +395,10 @@ def get_llm_model(provider_override=None):
     
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        logger.debug("Using Google Gemini")
+        model_name = os.getenv("GEMINI_MODEL", "")
+        logger.debug("Using Google Gemini model: %s", model_name)
         return ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
+            model=model_name,
             google_api_key=GEMINI_API_KEY,
             temperature=0.8,
             max_tokens=2048,
@@ -420,9 +413,8 @@ def get_llm_model(provider_override=None):
         )
     
     elif provider == "huggingface":
-        # Usar HuggingFace Inference API con chat_completion
-        model_id = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-        logger.debug("Using HuggingFace API for model %s", model_id)
+        model_id = os.getenv("HF_MODEL", "")
+        logger.debug("Using HuggingFace API for model: %s", model_id)
         
         from huggingface_hub import InferenceClient
         
@@ -461,8 +453,10 @@ def get_llm_model(provider_override=None):
     
     elif provider == "openai":
         from langchain_openai import ChatOpenAI
+        model_name = os.getenv("OPENAI_MODEL", "")
+        logger.debug("Using OpenAI model: %s", model_name)
         return ChatOpenAI(
-            model=os.getenv("OPENAI_MODEL", "gpt-4"),
+            model=model_name,
             api_key=OPENAI_API_KEY,
             temperature=0.7
         )
@@ -508,11 +502,11 @@ def get_llm_model(provider_override=None):
 agente = crear_agente()
 
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    """Endpoint para recibir webhooks de Evolution API"""
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
     try:
-        payload = await request.json()
+        payload = request.get_json()
         logger.info("Received webhook payload: %s", json.dumps(payload)[:500])
         
         # Extraer información del mensaje
@@ -546,11 +540,13 @@ async def webhook(request: Request):
                                "sticker"
                 
                 logger.info(f"Received {tipo_archivo.upper()} from {remitente} ({push_name}), requesting text message")
-                await enviar_mensaje_whatsapp(
+                # Enviar en background usando ThreadPool
+                executor.submit(
+                    enviar_mensaje_whatsapp,
                     remitente,
                     f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝",
-                    instance_id=webhook_instance,
-                    instance_name=payload.get('instance')
+                    webhook_instance,
+                    payload.get('instance')
                 )
                 return {"status": "success"}
             
@@ -563,18 +559,20 @@ async def webhook(request: Request):
                 audio_base64 = audio_message.get('base64', '')
                 
                 # Transcribir el audio
-                transcripcion = await transcribir_audio(audio_url, audio_base64)
+                transcripcion = transcribir_audio(audio_url, audio_base64)
                 
                 if transcripcion:
                     logger.info(f"[AUDIO] Procesando transcripción como mensaje de texto")
                     mensaje = transcripcion
                 else:
                     logger.warning("[AUDIO] No se pudo transcribir, enviando mensaje genérico")
-                    await enviar_mensaje_whatsapp(
+                    # Enviar en background usando ThreadPool
+                    executor.submit(
+                        enviar_mensaje_whatsapp,
                         remitente, 
                         "Disculpa, recibí tu mensaje de audio pero tuve problemas para transcribirlo. ¿Podrías escribirlo como texto?",
-                        instance_id=webhook_instance,
-                        instance_name=payload.get('instance')
+                        webhook_instance,
+                        payload.get('instance')
                     )
                     return {"status": "success"}
             
@@ -585,8 +583,8 @@ async def webhook(request: Request):
                 
                 # Solo enviar respuesta si no es None (conversación finalizada)
                 if respuesta is not None:
-                    # Enviar respuesta (pasando la instancia recibida para intentar usarla)
-                    await enviar_mensaje_whatsapp(remitente, respuesta, instance_id=webhook_instance, instance_name=payload.get('instance'))
+                    # Enviar respuesta en background usando ThreadPool
+                    executor.submit(enviar_mensaje_whatsapp, remitente, respuesta, webhook_instance, payload.get('instance'))
                 else:
                     logger.info("[BOOKING] No se envía respuesta - conversación finalizada")
         
@@ -605,15 +603,20 @@ async def webhook(request: Request):
                     if respuesta is not None:
                         # If the msg contains instance info, prefer it
                         msg_instance = msg.get('instance') or msg.get('instanceId')
-                        await enviar_mensaje_whatsapp(from_jid, respuesta, instance_id=msg_instance, instance_name=msg.get('instance'))
+                        #await enviar_mensaje_whatsapp(from_jid, respuesta, instance_id=msg_instance, instance_name=msg.get('instance'))
+                        # Procesar en background usando ThreadPool
+                        # Esto NO bloquea el webhook, responde inmediatamente
+                        executor.submit(enviar_mensaje_whatsapp, from_jid, respuesta, instance_id=msg_instance, instance_name=msg.get('instance'))
+                        logger.info(f"✅ Mensaje encolado de {from_jid} para envío en background")
                     else:
                         logger.info("[BOOKING] No se envía respuesta - conversación finalizada")
         
-        return {"status": "success"}
+        # Responder inmediatamente (sin esperar procesamiento)
+        return jsonify({"status": "accepted"}), 202
     
     except Exception as e:
-        logger.exception("Error en webhook: %s", e)
-        return {"status": "error", "message": str(e)}
+        print(f"Error en webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 def es_mensaje_generico(mensaje: str) -> bool:
@@ -641,68 +644,37 @@ def es_mensaje_generico(mensaje: str) -> bool:
     return False
 
 
+def mark_tool_as_executed(user_id: str):
+    """Marca la conversación de un usuario como manejada (no responder más)"""
+    # Obtener memoria del usuario
+    memory = get_memory(user_id)
+    
+    # Marcar que se envió el link de reserva (siempre existe ahora)
+    memory.booking_sent = True
+    logger.info(f"[BOOKING] ✅ booking_sent establecido en True para user_id={user_id}")
+
+
 def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
     """Procesa un mensaje usando el LLM"""
     try:
         # Obtener memoria del usuario
         memory = get_memory(user_id)
 
-        # Extraer información del mensaje para el lead
-        mensaje_lower = mensaje.lower()
-
-        # Inicializar variable de rubro
-        rubro = ''
-        
-        # Intentar extraer rubro/negocio del mensaje de forma más inteligente
-        palabras_clave_negocio = ['tengo', 'vendo', 'trabajo', 'empresa', 'negocio', 'emprendimiento', 
-                                   'tienda', 'local', 'comercio', 'dedicamos', 'ofrecemos', 'vendemos',
-                                   'somos', 'ecommerce', 'e-commerce', 'retail', 'mayorista', 'minorista']
-        
-        # Si el mensaje contiene palabras relacionadas con negocio
-        if any(palabra in mensaje_lower for palabra in palabras_clave_negocio):
-            # Guardar el mensaje completo como rubro (será usado en CRM)
-            rubro = mensaje
-            # Actualizar si ya existe el usuario
-            if user_id in user_lead_info:
-                user_lead_info[user_id]['rubro'] = rubro
-
-        # Extraer volumen de mensajes si se menciona un número
-        import re
-        numeros_en_mensaje = re.findall(r'\b(\d+)\s*(?:mensajes?|consultas?|clientes?|por\s*día|diarios?|al\s*día)', mensaje_lower)
-        if numeros_en_mensaje and user_id in user_lead_info:
-            user_lead_info[user_id]['volumen_mensajes'] = numeros_en_mensaje[0]
-
-        # Extraer número de teléfono del user_id (formato: 5491131376731@s.whatsapp.net)
-        telefono = user_id.split('@')[0] if '@' in user_id else user_id
-        
-        # Guardar información básica del lead si no existe
-        if user_id not in user_lead_info:
-            user_lead_info[user_id] = {
-                'nombre': client_name if client_name else 'Lead desde WhatsApp',
-                'telefono': telefono if telefono else '',
-                'empresa': '',
-                'rubro': '',
-                'volumen_mensajes': '',
-                'email': 'example@example.com'
-            }
-        
-        # Si ya se envió el link y el mensaje es genérico, no responder
-        if hasattr(memory, 'booking_sent') and memory.booking_sent:
-            if es_mensaje_generico(mensaje):
-                logger.info(f"[BOOKING] Conversación finalizada. Mensaje genérico ignorado: {mensaje}")
-                return None  # Retornar None para no enviar respuesta
-            else:
-                # Si es una pregunta real después del link, resetear el flag para continuar
-                logger.info(f"[BOOKING] Nueva pregunta después del link, continuando conversación: {mensaje}")
-                memory.booking_sent = False
+        # Extraer información de lead 
+        extract_lead_info(user_id, mensaje, client_name=client_name)
         
         # Detectar si es el primer mensaje (saludo inicial)
         is_first_message = len(memory.chat_memory.messages) == 0
 
-        client_info = f"\nCliente: {client_name}" if client_name else ""
+        client_info = f"\nNombre del cliente: {client_name}" if client_name else ""
         
-        # Crear sistema de prompt con contexto enriquecido
-        system_prompt = AGENT_INSTRUCTION + f"""\nFecha: {datetime.now().strftime("%Y-%m-%d")}{client_info}"""
+         # Leer estado de booking_sent
+        booking_status = getattr(memory, 'booking_sent', False)
+        booking_info = f"\n\n🚨 booking_sent = {booking_status}"
+        logger.debug(f"[BOOKING] Estado de booking_sent para user_id={user_id}: {booking_status}")
+        
+        # Crear sistema de prompt enriquecido
+        system_prompt = AGENT_INSTRUCTION + f"""\nFecha: {datetime.now().strftime("%Y-%m-%d")}{client_info}{booking_info}"""
         
         # Construir mensajes
         messages = [SystemMessage(content=system_prompt)]
@@ -713,6 +685,10 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         try:
             respuesta_llm = agente.invoke(messages)
             respuesta = respuesta_llm.content
+            # LOG DEL MENSAJE ENVIADO AL LLM
+            logger.debug("="*80)
+            logger.debug(f"[MENSAJE AL LLM]: {mensaje}")
+            logger.debug("="*80)
         except Exception as llm_error:
             logger.error(f"Error con LLM provider principal ({LLM_PROVIDER}): {llm_error}")
             
@@ -735,13 +711,14 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 return "Gracias por contactarnos. En este momento estamos experimentando dificultades técnicas. Por favor, intenta nuevamente en unos minutos o contáctanos directamente al número de atención al cliente."
         
         # LOG DE LA RESPUESTA
-        logger.info("="*80)
-        logger.info(f"[RESPUESTA DEL LLM]: {respuesta}")
-        logger.info("="*80)
+        logger.debug("="*80)
+        logger.debug(f"[RESPUESTA DEL LLM]: {str(respuesta)[:200]}")
+        logger.debug("="*80)
         
         # Manejar diferentes formatos de respuesta del LLM
         if isinstance(respuesta, list):
             # Si es una lista de diccionarios, extraer el texto
+            logger.debug("Respuesta es una lista, extrayendo texto de cada parte")
             texto_partes = []
             for item in respuesta:
                 if isinstance(item, dict) and 'text' in item:
@@ -753,7 +730,7 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
             # Convertir a string si no es string
             respuesta = str(respuesta)
         
-        # Verificar si es una acción de reserva
+        # Verificar si se activó la TOOL
         if "accion" in respuesta:
             try:
                 # Intentar extraer JSON de bloques markdown si existe
@@ -770,47 +747,9 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 accion = datos.get("accion")
                 
                 if accion == "reserva":
-                    resultado = enviar_link_reserva(datos.get("motivo", ""))
-                    respuesta = resultado
-                    
-                    # Marcar que se envió el link de reserva
-                    if hasattr(memory, 'booking_sent'):
-                        memory.booking_sent = True
-                        logger.info(f"[BOOKING] Conversación marcada como completada para user_id={user_id}")
-                        logger.info(f"[BOOKING] Enviando mensaje con botón de reserva")
-                    
-                    # Registrar lead en CRM si está habilitado
-                    lead_info = user_lead_info.get(user_id, {})
-                    lead_id = ''
-                    
-                    if CRM_AUTO_REGISTER and KRAYIN_API_URL and KRAYIN_API_TOKEN:
-                        try:                            
-                            # Registrar lead en CRM
-                            crm_resultado = registrar_lead_en_crm(user_id, telefono)
-                            logger.info(f"[CRM] {crm_resultado}")
-                            
-                            # Obtener lead_id actualizado después del registro
-                            lead_id = lead_info.get('lead_id', '')
-                        except Exception as e:
-                            logger.error(f"[CRM] Error al registrar lead: {e}")
-                    
-                    # Registrar en Google Sheets si está habilitado (independiente del CRM)
-                    if GOOGLE_SHEETS_ENABLED:
-                        try:
-                            sheets_resultado = registrar_lead_en_sheets(
-                                nombre=lead_info.get('nombre', 'Lead desde WhatsApp'),
-                                telefono=telefono,
-                                email=lead_info.get('email', ''),
-                                empresa=lead_info.get('empresa', ''),
-                                rubro=lead_info.get('rubro', ''),
-                                volumen_mensajes=lead_info.get('volumen_mensajes', ''),
-                                lead_id=str(lead_id),
-                                estado="Cita Solicitada"
-                            )
-                            logger.info(f"[SHEETS] {sheets_resultado.get('message', 'Sin mensaje')}")
-                        except Exception as e:
-                            logger.error(f"[SHEETS] Error al registrar lead: {e}")
-                    
+                    respuesta = trigger_booking_tool(user_id, mensaje, client_name=client_name)
+                    mark_tool_as_executed(user_id)
+
             except json.JSONDecodeError as e:
                 logger.warning(f"Error al parsear JSON: {e}")
                 pass  # Si no es JSON válido, usar la respuesta como está
@@ -822,7 +761,10 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
             respuesta_texto = respuesta['content']['text']
         else:
             respuesta_texto = str(respuesta)
-        memory.chat_memory.add_ai_message(respuesta_texto)
+
+        # Guardar en memoria (thread-safe)
+        with memory_lock:  
+            memory.chat_memory.add_ai_message(respuesta_texto)
         
         # Truncar memoria si excede el límite
         truncate_memory(memory)
@@ -834,14 +776,14 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         return "Lo siento, ocurrió un error al procesar tu mensaje. Por favor intenta de nuevo."
 
 
-@app.get("/health")
-async def health():
+@app.route("/health", methods=['GET'])
+def health():
     """Endpoint de salud"""
     return {"status": "ok"}
 
 
-@app.get("/memory")
-async def memory_index():
+@app.route("/memory", methods=['GET'])
+def memory_index():
     """Lista los user_ids en memoria y la cantidad de mensajes guardados por cada uno."""
     result = {}
     for uid, mem in user_memories.items():
@@ -857,8 +799,8 @@ async def memory_index():
     return result
 
 
-@app.get("/memory/{user_id}")
-async def memory_detail(user_id: str):
+@app.route("/memory/<user_id>", methods=['GET'])
+def memory_detail(user_id: str):
     """Devuelve detalle de la memoria para un usuario: conteo y los últimos 10 mensajes."""
     mem = user_memories.get(user_id)
     if not mem:
@@ -884,10 +826,26 @@ async def memory_detail(user_id: str):
 
 
 if __name__ == '__main__':
-    import uvicorn
-    print("🤖 Iniciando chatbot con LangChain...")
-    print(f"🧠 Usando LLM: {LLM_PROVIDER}")
-    print(f"🔑 Instance ID: {EVOLUTION_INSTANCE_ID or EVOLUTION_INSTANCE}")
-    print("📅 Herramienta de Google Calendar configurada")
-    print("💬 Esperando mensajes de Evolution API...")
-    uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
+
+    # Servidor
+    print(f"\n🚀 SERVIDOR:")
+    print(f"  🌐 Host: 0.0.0.0")
+    print(f"  🔌 Puerto: 5000")
+    print(f"  📋 Endpoints disponibles:")
+    print(f"     POST /webhook - Recibe mensajes de WhatsApp")
+    print(f"     GET  /health - Estado del servicio")
+    print(f"     GET  /memory - Lista de conversaciones activas")
+    print(f"     GET  /memory/{{user_id}} - Detalles de conversación")
+    print("🔄 Modo concurrente: 10 workers activos")
+
+    print("\n" + "="*60)
+    print("✅ Inicialización completada - Esperando mensajes...")
+    print("="*60 + "\n")
+
+    # Ejecutar Flask con threading habilitado
+    app.run(
+        host='0.0.0.0',
+        port=5000,
+        threaded=True,  # Importante: habilitar threading
+        debug=False     # Cambiar a False en producción
+    )

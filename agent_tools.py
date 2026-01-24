@@ -25,6 +25,9 @@ KRAYIN_USER_ID = os.getenv('KRAYIN_USER_ID', '1')
 KRAYIN_PIPELINE_ID = os.getenv('KRAYIN_PIPELINE_ID', '1')
 KRAYIN_STAGE_ID = os.getenv('KRAYIN_STAGE_ID', '1')
 
+# Configuración de CRM
+CRM_AUTO_REGISTER = os.getenv('CRM_AUTO_REGISTER', 'true').lower() == 'true'
+
 # Configuración de Google Sheets (opcional)
 GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'false').lower() == 'true'
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')
@@ -684,3 +687,120 @@ def registrar_lead_en_sheets(
             "error": str(e),
             "message": f"❌ Error al registrar en Google Sheets: {str(e)}"
         }
+
+
+def extract_lead_info(user_id: str, mensaje: str, client_name: str = ""):
+    """Extrae información relevante del mensaje y actualiza `user_lead_info`.
+
+    Args:
+        user_id: Identificador del usuario (ej: 5491...@s.whatsapp.net)
+        mensaje: Texto del mensaje recibido
+        client_name: Nombre mostrado del cliente (opcional)
+    """
+    try:
+        mensaje_lower = mensaje.lower()
+
+        # Inicializar variable de rubro
+        rubro = ''
+
+        # Intentar extraer rubro/negocio del mensaje de forma más inteligente
+        palabras_clave_negocio = [
+            'tengo', 'vendo', 'trabajo', 'empresa', 'negocio', 'emprendimiento',
+            'tienda', 'local', 'comercio', 'dedicamos', 'ofrecemos', 'vendemos',
+            'somos', 'ecommerce', 'e-commerce', 'retail', 'mayorista', 'minorista'
+        ]
+
+        # Si el mensaje contiene palabras relacionadas con negocio
+        if any(palabra in mensaje_lower for palabra in palabras_clave_negocio):
+            rubro = mensaje
+
+        # Extraer volumen de mensajes si se menciona un número
+        import re
+        numeros_en_mensaje = re.findall(
+            r'\b(\d+)\s*(?:mensajes?|consultas?|clientes?|por\s*día|diarios?|al\s*día)',
+            mensaje_lower
+        )
+        volumen = numeros_en_mensaje[0] if numeros_en_mensaje else ''
+
+        # Extraer número de teléfono del user_id (formato: 5491131376731@s.whatsapp.net)
+        telefono = user_id.split('@')[0] if '@' in user_id else user_id
+
+        # Guardar información básica del lead si no existe
+        if user_id not in user_lead_info:
+            user_lead_info[user_id] = {
+                'nombre': client_name if client_name else 'Lead desde WhatsApp',
+                'telefono': telefono if telefono else '',
+                'empresa': '',
+                'rubro': '',
+                'volumen_mensajes': '',
+                'email': 'example@example.com'
+            }
+
+        # Actualizar datos extraídos
+        if rubro:
+            user_lead_info[user_id]['rubro'] = rubro
+        if volumen:
+            user_lead_info[user_id]['volumen_mensajes'] = volumen
+
+        return user_lead_info[user_id]
+
+    except Exception as e:
+        logger.exception(f"Error en extract_lead_info: {e}")
+        return None
+
+
+def trigger_booking_tool(user_id: str, mensaje: str, client_name: str = "") -> str:
+    """Activa las herramientas de reserva y registro de leads
+    
+    Args:
+        user_id: ID del usuario
+        mensaje: Mensaje recibido
+        client_name: Nombre del cliente
+        
+    Returns:
+        Resultado con el link de reserva
+    """
+    try:        
+        # Extraer número de teléfono del user_id
+        telefono = user_id.split('@')[0] if '@' in user_id else user_id
+        
+        # Enviar link de reserva con botones
+        resultado = enviar_link_reserva()
+        
+        # Registrar lead en CRM si está habilitado
+        lead_info = user_lead_info.get(user_id, {})
+        lead_id = ''
+        
+        if CRM_AUTO_REGISTER and KRAYIN_API_URL and KRAYIN_API_TOKEN:
+            try:
+                # Registrar lead en CRM
+                crm_resultado = registrar_lead_en_crm(user_id, telefono)
+                logger.info(f"[CRM] {crm_resultado}")
+                
+                # Obtener lead_id actualizado después del registro
+                lead_id = lead_info.get('lead_id', '')
+            except Exception as e:
+                logger.error(f"[CRM] Error al registrar lead: {e}")
+        
+        # Registrar en Google Sheets si está habilitado (independiente del CRM)
+        if GOOGLE_SHEETS_ENABLED:
+            try:
+                sheets_resultado = registrar_lead_en_sheets(
+                    nombre=lead_info.get('nombre', 'Lead desde WhatsApp'),
+                    telefono=telefono,
+                    email=lead_info.get('email', ''),
+                    empresa=lead_info.get('empresa', ''),
+                    rubro=lead_info.get('rubro', ''),
+                    volumen_mensajes=lead_info.get('volumen_mensajes', ''),
+                    lead_id=str(lead_id),
+                    estado="Cita Solicitada"
+                )
+                logger.info(f"[SHEETS] {sheets_resultado.get('message', 'Sin mensaje')}")
+            except Exception as e:
+                logger.error(f"[SHEETS] Error al registrar lead: {e}")
+        
+        return resultado
+        
+    except Exception as e:
+        logger.exception(f"Error en trigger_booking_tool: {e}")
+        return "Lo siento, hubo un error al procesar tu reserva. Por favor intenta nuevamente."

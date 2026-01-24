@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script para gestionar el agente de Python
-# cd /home/leanusr/python-agent && ./agent-manager.sh restart
-# sleep 3 && cd /home/leanusr/python-agent && ./agent-manager.sh status
+# cd /home/leanusr/sisagent && ./agent-manager.sh restart
+# sleep 3 && cd /home/leanusr/sisagent && ./agent-manager.sh status
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
