@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 
 PYTHON_BIN="./venv/bin/python"
 AGENT_SCRIPT="agent.py"
-LOG_FILE="agent_verbose.log"
+LOG_FILE="sisagent_verbose.log"
 PID_FILE="agent.pid"
 
 # Colores para output
@@ -54,12 +54,12 @@ start() {
         echo "   Copia .env.example y configura las variables"
     fi
     
-    # Iniciar el agente en background (sin redirigir a agent.log, solo usar agent_verbose.log)
+    # Iniciar el agente en background (sin redirigir a agent.log, solo usar sisagent_verbose.log)
     nohup $PYTHON_BIN $AGENT_SCRIPT > /dev/null 2>&1 &
     local pid=$!
     
     # Esperar un momento para verificar que se inició
-    sleep 3
+    sleep 5
     
     if is_running; then
         echo $pid > $PID_FILE
@@ -70,12 +70,12 @@ start() {
             echo -e "${GREEN}✅ Health check OK${NC}"
         else
             echo -e "${YELLOW}⚠️  El agente está corriendo pero no responde en puerto 5000${NC}"
-            echo "   Revisa: tail -f agent_verbose.log"
+            echo "   Revisa: tail -f sisagent_verbose.log"
         fi
         return 0
     else
         echo -e "${RED}❌ Error al iniciar el agente${NC}"
-        echo "   Revisa: tail -20 agent_verbose.log"
+        echo "   Revisa: tail -20 sisagent_verbose.log"
         return 1
     fi
 }

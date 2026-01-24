@@ -21,28 +21,79 @@ import pickle
 import json
 from dotenv import load_dotenv
 
-# Importar prompts personalizados
+
+# ===============================================================================
+# === Configurar logging con rotación de archivos para evitar llenar el disco ===
+# Mantiene hasta 10MB por archivo, con 5 archivos de respaldo (total: 50MB máximo)
+rotating_handler = RotatingFileHandler(
+    'sisagent_verbose.log',
+    maxBytes=10*1024*1024,  # 10 MB por archivo
+    backupCount=5,  # Mantener 5 archivos de respaldo (agent_verbose.log.1, .2, etc.)
+    encoding='utf-8'
+)
+rotating_handler.setLevel(logging.DEBUG)
+rotating_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+
+# Configurar el logger específico sin usar basicConfig para evitar duplicación
+logger = logging.getLogger('agent')
+logger.setLevel(logging.DEBUG)
+
+# Limpiar handlers existentes para evitar duplicación
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+logger.addHandler(rotating_handler)
+logger.addHandler(console_handler)
+
+# Evitar que los logs se propaguen al root logger (evita duplicación)
+logger.propagate = False
+
+logger.debug("="*80)
+logger.info(f"🚀 >======> Starting...")
+logger.debug("="*80)
+# ===============================================================================
+
+
+# =========Importar prompts personalizados y herramientas del agente ============
 try:
     from prompts import AGENT_INSTRUCTION
-    print(f"✅ AGENT_INSTRUCTION cargado: {len(AGENT_INSTRUCTION)} caracteres")
+    # Calcular una estimación del peso en tokens (heurística: ~1 token por 4 caracteres)
+    if AGENT_INSTRUCTION:
+        token_est = max(1, int(len(AGENT_INSTRUCTION) / 4))
+        word_count = len(AGENT_INSTRUCTION.split())
+    else:
+        token_est = 0
+        word_count = 0
+    logger.info(
+        f"✅ AGENT_INSTRUCTION cargado: {len(AGENT_INSTRUCTION)} caracteres | palabras={word_count} | aprox_tokens={token_est}"
+    )
     SESSION_INSTRUCTION = ""  # No se usa actualmente
 except Exception as e:
-    print(f"❌ Error importando prompts: {type(e).__name__}: {e}")
+    logger.error(f"❌ Error importando prompts: {type(e).__name__}: {e}")
     import traceback
     traceback.print_exc()
     AGENT_INSTRUCTION = ""
     SESSION_INSTRUCTION = ""
 
+# Log de verificación del AGENT_INSTRUCTION
+logger.info(f"🔍 Verificación AGENT_INSTRUCTION: {len(AGENT_INSTRUCTION)} caracteres")
+if len(AGENT_INSTRUCTION) == 0:
+    logger.error("❌ AGENT_INSTRUCTION está VACÍO - El agente NO funcionará correctamente")
+else:
+    logger.info(f"✅ AGENT_INSTRUCTION cargado correctamente")
+    logger.debug(f"Primeros 200 chars: {AGENT_INSTRUCTION[:200]}")
+    
 # Importar herramientas del agente
 from agent_tools import (
     extract_lead_info,
     trigger_booking_tool
 )
 
-# Cargar variables de entorno
-load_dotenv()
-
-# Cargar conocimiento del negocio desde JSON
+# Cargar conocimiento del negocio desde JSON (sin uso)
 CONOCIMIENTO_NEGOCIO = {}
 try:
     with open('conocimiento_negocio.json', 'r', encoding='utf-8') as f:
@@ -52,6 +103,11 @@ except FileNotFoundError:
     print("⚠️  Advertencia: No se encontró conocimiento_negocio.json")
 except json.JSONDecodeError as e:
     print(f"⚠️  Error al parsear conocimiento_negocio.json: {e}")
+# ===============================================================================
+
+
+# Cargar variables de entorno
+load_dotenv()
 
 # Configuración
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
@@ -76,41 +132,6 @@ TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")  # opcion
 # Almacenamiento simple de memoria por usuario (thread-safe con Lock)
 user_memories: Dict[str, Dict] = {}
 
-# Configurar logging con rotación de archivos para evitar llenar el disco
-# Mantiene hasta 10MB por archivo, con 5 archivos de respaldo (total: 50MB máximo)
-rotating_handler = RotatingFileHandler(
-    'sisagent_verbose.log',
-    maxBytes=10*1024*1024,  # 10 MB por archivo
-    backupCount=5,  # Mantener 5 archivos de respaldo (agent_verbose.log.1, .2, etc.)
-    encoding='utf-8'
-)
-rotating_handler.setLevel(logging.DEBUG)
-rotating_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
-
-# Configurar el logger específico sin usar basicConfig para evitar duplicación
-logger = logging.getLogger('sisagent')
-logger.setLevel(logging.DEBUG)
-
-# Limpiar handlers existentes para evitar duplicación
-if logger.hasHandlers():
-    logger.handlers.clear()
-
-logger.addHandler(rotating_handler)
-logger.addHandler(console_handler)
-# Evitar que los logs se propaguen al root logger (evita duplicación)
-logger.propagate = False
-
-# Log de verificación del AGENT_INSTRUCTION
-logger.info(f"🔍 Verificación AGENT_INSTRUCTION: {len(AGENT_INSTRUCTION)} caracteres")
-if len(AGENT_INSTRUCTION) == 0:
-    logger.error("❌ AGENT_INSTRUCTION está VACÍO - El agente NO funcionará correctamente")
-else:
-    logger.info(f"✅ AGENT_INSTRUCTION cargado correctamente")
-    logger.debug(f"Primeros 200 chars: {AGENT_INSTRUCTION[:200]}")
 
 # Configuración
 app = Flask(__name__)
