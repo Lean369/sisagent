@@ -54,8 +54,9 @@ start() {
         echo "   Copia .env.example y configura las variables"
     fi
     
-    # Iniciar el agente en background (sin redirigir a agent.log, solo usar sisagent_verbose.log)
+    # Iniciar el agente en modo
     nohup $PYTHON_BIN $AGENT_SCRIPT > /dev/null 2>&1 &
+    #nohup $PYTHON_BIN $AGENT_SCRIPT >> sisagent_verbose.log 2>&1 &
     local pid=$!
     
     # Esperar un momento para verificar que se inició

@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from flask import Flask, request, jsonify
@@ -20,6 +21,10 @@ from googleapiclient.discovery import build
 import pickle
 import json
 from dotenv import load_dotenv
+
+# Cargar variables de entorno lo antes posible para que módulos importados posteriormente
+# (por ejemplo `agent_metrics`) reciban las variables desde .env
+load_dotenv()
 
 
 # ===============================================================================
@@ -53,14 +58,14 @@ logger.addHandler(console_handler)
 logger.propagate = False
 
 logger.debug("="*80)
-logger.info(f"🚀 >======> Starting...")
+logger.info(f"🚀 >======> Starting from reboot...")
 logger.debug("="*80)
 # ===============================================================================
 
 
-# =========Importar prompts personalizados y herramientas del agente ============
+# =========Importar external_instructions y herramientas del agente ============
 try:
-    from prompts import AGENT_INSTRUCTION
+    from external_instructions import AGENT_INSTRUCTION
     # Calcular una estimación del peso en tokens (heurística: ~1 token por 4 caracteres)
     if AGENT_INSTRUCTION:
         token_est = max(1, int(len(AGENT_INSTRUCTION) / 4))
@@ -69,11 +74,11 @@ try:
         token_est = 0
         word_count = 0
     logger.info(
-        f"✅ AGENT_INSTRUCTION cargado: {len(AGENT_INSTRUCTION)} caracteres | palabras={word_count} | aprox_tokens={token_est}"
+        f"✅ AGENT_INSTRUCTION loaded: length={len(AGENT_INSTRUCTION)} | words={word_count} | aprox_tokens={token_est}"
     )
     SESSION_INSTRUCTION = ""  # No se usa actualmente
 except Exception as e:
-    logger.error(f"❌ Error importando prompts: {type(e).__name__}: {e}")
+    logger.error(f"❌ Error importando external_instructions: {type(e).__name__}: {e}")
     import traceback
     traceback.print_exc()
     AGENT_INSTRUCTION = ""
@@ -85,13 +90,20 @@ if len(AGENT_INSTRUCTION) == 0:
     logger.error("❌ AGENT_INSTRUCTION está VACÍO - El agente NO funcionará correctamente")
 else:
     logger.info(f"✅ AGENT_INSTRUCTION cargado correctamente")
-    logger.debug(f"Primeros 200 chars: {AGENT_INSTRUCTION[:200]}")
+    logger.debug(f"First 200 chars: {AGENT_INSTRUCTION[:200]}")
     
-# Importar herramientas del agente
-from agent_tools import (
+# Importar elementos de booking_tools y agent_metrics
+from booking_tools import (
     extract_lead_info,
     trigger_booking_tool
 )
+from agent_metrics import (
+    rate_limiter,
+    cache_respuestas,
+    detector_intenciones,
+    metricas
+)
+from ddos_protection import ddos_protection
 
 # Cargar conocimiento del negocio desde JSON (sin uso)
 CONOCIMIENTO_NEGOCIO = {}
@@ -105,9 +117,6 @@ except json.JSONDecodeError as e:
     print(f"⚠️  Error al parsear conocimiento_negocio.json: {e}")
 # ===============================================================================
 
-
-# Cargar variables de entorno
-load_dotenv()
 
 # Configuración
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
@@ -128,6 +137,12 @@ MAX_MESSAGES_PER_CONVERSATION = int(os.getenv("MAX_MESSAGES", "50"))  # Límite 
 # Configuración para transcripción de audio
 TRANSCRIPTION_ENABLED = os.getenv("TRANSCRIPTION_ENABLED", "true").lower() == "true"
 TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")  # opciones: openai, whisper-local
+
+# Rate Limiter configuración
+RATE_LIMITER_ENABLED = os.getenv("RATE_LIMITER_ENABLED", "true").lower() == "true"
+INTENT_DETECTOR_ENABLED = os.getenv("INTENT_DETECTOR_ENABLED", "true").lower() == "true"
+FAQ_CACHE_ENABLED = os.getenv("FAQ_CACHE_ENABLED", "true").lower() == "true"
+DDOS_PROTECTION_ENABLED = os.getenv("DDOS_PROTECTION_ENABLED", "true").lower() == "true"
 
 # Almacenamiento simple de memoria por usuario (thread-safe con Lock)
 user_memories: Dict[str, Dict] = {}
@@ -220,7 +235,7 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
             except Exception:
                 text = response.text
 
-            logger.debug("Tried %s with candidate=%s status=%s response=%s", endpoint_type, candidate, status, str(text)[:200])
+            logger.debug("[SND] Tried %s with candidate=%s status=%s response=%s", endpoint_type, candidate, status, str(text)[:200])
 
             if 200 <= status < 300:
                 return text
@@ -528,7 +543,7 @@ def webhook():
     """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
     try:
         payload = request.get_json()
-        logger.info("Received webhook payload: %s", json.dumps(payload)[:500])
+        logger.info("[RCV] Received webhook payload: %s", json.dumps(payload)[:500])
         
         # Extraer información del mensaje
         if payload.get('event') == 'messages.upsert':
@@ -552,6 +567,14 @@ def webhook():
             push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
             # Intentar obtener instance/id proporcionado en el webhook
             webhook_instance = payload.get('instance') or mensaje_data.get('instanceId') or None
+            
+            # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
+            if remitente and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
+                puede_procesar, mensaje_error = ddos_protection.puede_procesar(remitente)
+                if not puede_procesar:
+                    logger.warning(f"DDoS Protection: bloqueando mensaje de {remitente}: {mensaje_error}")
+                    # NO enviar mensaje automático para prevenir loops
+                    return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
             
             # Si es una imagen, video, documento o sticker, pedir que escriba texto
             if (image_message or video_message or document_message or sticker_message) and not from_me and remitente:
@@ -678,6 +701,9 @@ def mark_tool_as_executed(user_id: str):
 def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
     """Procesa un mensaje usando el LLM"""
     try:
+        inicio = time.time()
+        metricas.registrar_inicio(user_id)
+
         # Obtener memoria del usuario
         memory = get_memory(user_id)
 
@@ -686,16 +712,52 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         
         # Detectar si es el primer mensaje (saludo inicial)
         is_first_message = len(memory.chat_memory.messages) == 0
+        logger.debug(f"[MEMORY] user_id={user_id} tiene {len(memory.chat_memory.messages)} mensajes en memoria")
 
-        client_info = f"\nNombre del cliente: {client_name}" if client_name else ""
+        # 1. RATE LIMITING
+        if RATE_LIMITER_ENABLED:
+            puede, mensaje_error = rate_limiter.puede_procesar(user_id)
+            if not puede:
+                metricas.registrar_fin(user_id, time.time() - inicio, error=True)
+                return mensaje_error
         
-         # Leer estado de booking_sent
+        # 2. DETECCIÓN RÁPIDA DE INTENCIÓN
+        if INTENT_DETECTOR_ENABLED:
+            intencion = detector_intenciones.detectar(mensaje)
+            logger.debug(f"[INTENCIÓN RÁPIDA] user_id={user_id} intención={intencion}")
+            # Si es saludo o despedida simple de 2 o menos palabras, responder sin LLM
+            if intencion == 'saludo' and len(mensaje.split()) <= 2 and is_first_message:
+                logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo saludo rápido para user_id={user_id}")
+                nombre = client_name
+                respuesta = detector_intenciones.respuesta_rapida('saludo', nombre)
+                metricas.registrar_fin(user_id, time.time() - inicio, fue_cache=True)
+                with memory_lock:  
+                    memory.chat_memory.add_ai_message(respuesta)
+                return respuesta
+            if intencion == 'despedida' and len(mensaje.split()) <= 2:
+                logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo despedida rápida para user_id={user_id}")
+                nombre = client_name
+                respuesta = detector_intenciones.respuesta_rapida('despedida', nombre)
+                metricas.registrar_fin(user_id, time.time() - inicio, fue_cache=True)
+                return respuesta
+
+        # 3. CACHE DE RESPUESTAS
+        if FAQ_CACHE_ENABLED:
+            respuesta_cache = cache_respuestas.obtener(mensaje)
+            if respuesta_cache:
+                logger.debug(f"[CACHE] Respuesta obtenida de cache para user_id={user_id}")
+                metricas.registrar_fin(user_id, time.time() - inicio, fue_cache=True)
+                return respuesta_cache
+        
+         # Enviar nombre del cliente y estados de booking_sent y is_first_message en el prompt
+        client_info = f"\nNombre del cliente: {client_name}" if client_name else ""
         booking_status = getattr(memory, 'booking_sent', False)
-        booking_info = f"\n\n🚨 booking_sent = {booking_status}"
+        booking_info = f"\n\n🚨 ESTADO: booking_sent = {booking_status}"
+        is_first_message = f"\n\n🚨 ESTADO: is_first_message = {is_first_message}"
         logger.debug(f"[BOOKING] Estado de booking_sent para user_id={user_id}: {booking_status}")
         
         # Crear sistema de prompt enriquecido
-        system_prompt = AGENT_INSTRUCTION + f"""\nFecha: {datetime.now().strftime("%Y-%m-%d")}{client_info}{booking_info}"""
+        system_prompt = AGENT_INSTRUCTION + f"""\nFecha: {datetime.now().strftime("%Y-%m-%d")}{client_info}{booking_info}{is_first_message}"""
         
         # Construir mensajes
         messages = [SystemMessage(content=system_prompt)]
@@ -775,8 +837,10 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 logger.warning(f"Error al parsear JSON: {e}")
                 pass  # Si no es JSON válido, usar la respuesta como está
         
-        # Guardar en memoria
-        memory.chat_memory.add_user_message(mensaje)
+        # Guardar en memoria el mensaje del usuario (thread-safe)
+        with memory_lock:
+            memory.chat_memory.add_user_message(mensaje)
+
         # Si la respuesta es un dict con botón, guardar el texto del contenido
         if isinstance(respuesta, dict) and respuesta.get('type') == 'button':
             respuesta_texto = respuesta['content']['text']
@@ -788,8 +852,18 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
             memory.chat_memory.add_ai_message(respuesta_texto)
         
         # Truncar memoria si excede el límite
-        truncate_memory(memory)
+        with memory_lock:
+            truncate_memory(memory)
         
+        # 5. GUARDAR EN CACHE (solo mensajes cortos y generales)
+        #and intencion in ['consulta_precio', 'consulta_horario']:
+        if len(mensaje) <= 10:
+            logger.debug(f"[CACHE] Guardando en cache el mensaje = {mensaje} length={len(mensaje)}   ")
+            cache_respuestas.guardar(mensaje, respuesta)
+        
+        tiempo_total = time.time() - inicio
+        metricas.registrar_fin(user_id, tiempo_total, fue_cache=False)
+
         return respuesta
     
     except Exception as e:
@@ -801,6 +875,25 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
 def health():
     """Endpoint de salud"""
     return {"status": "ok"}
+
+
+@app.route("/ddos-stats", methods=['GET'])
+def ddos_stats():
+    """Endpoint de estadísticas de protección DDoS"""
+    if not DDOS_PROTECTION_ENABLED or not ddos_protection:
+        return jsonify({"enabled": False, "message": "DDoS protection disabled"})
+    return jsonify({"enabled": True, "stats": ddos_protection.get_stats()})
+
+
+@app.route("/metrics", methods=['GET'])
+def metrics():
+    """Endpoint de métricas del sistema"""
+    try:
+        stats = metricas.obtener_estadisticas()
+        return jsonify(stats)
+    except Exception as e:
+        logger.exception("Error obteniendo métricas")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/memory", methods=['GET'])
@@ -855,9 +948,11 @@ if __name__ == '__main__':
     print(f"  📋 Endpoints disponibles:")
     print(f"     POST /webhook - Recibe mensajes de WhatsApp")
     print(f"     GET  /health - Estado del servicio")
+    print(f"     GET  /metrics - Métricas del sistema")
+    print(f"     GET  /ddos-stats - Estadísticas de protección DDoS")
     print(f"     GET  /memory - Lista de conversaciones activas")
     print(f"     GET  /memory/{{user_id}} - Detalles de conversación")
-    print("🔄 Modo concurrente: 10 workers activos")
+    print("🔄 Modo concurrente: 4 workers activos")
 
     print("\n" + "="*60)
     print("✅ Inicialización completada - Esperando mensajes...")

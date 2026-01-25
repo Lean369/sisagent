@@ -9,6 +9,7 @@ Sistema de agente conversacional inteligente que integra WhatsApp (vía Evolutio
 - ✅ **Gestión de Memoria con Rotación**: Límite de 50 mensajes por conversación con ventana deslizante
 - ✅ **Sistema de Reservas Simplificado**: Link directo a página de reservas de Google Calendar
 - ✅ **Finalización Inteligente**: No responde a saludos/agradecimientos después de enviar el link de reserva
+- ✅ **Protección DDoS Multi-Capa**: 5 capas de protección contra ataques volumétricos con múltiples números
 - ✅ **Sistema de Fallback LLM**: Respaldo automático a proveedor secundario en caso de fallo del principal
 - ✅ **Logging con Rotación**: Máximo 50 MB de logs con 5 archivos de respaldo
 - ✅ **Multi-LLM**: Soporte para HuggingFace, Anthropic, OpenAI y Google Gemini
@@ -107,6 +108,12 @@ GOOGLE_BOOKING_URL=https://calendar.app.google/uxYJoEeZvCWoT3269
 
 # Configuración de Memoria
 MAX_MESSAGES=50  # Límite de mensajes por conversación (default: 50)
+
+# Protección DDoS
+DDOS_GLOBAL_MAX_RPM=100           # Límite global de mensajes por minuto (default: 100)
+DDOS_MAX_NEW_NUMBERS_PM=20        # Máximo de números nuevos por minuto (default: 20)
+DDOS_SUSPICIOUS_THRESHOLD=10      # Umbral para activar modo sospechoso (default: 10)
+DDOS_OWNER_NUMBERS=5491131376731  # Números siempre permitidos (separados por coma)
 
 # Integración con Krayin CRM
 KRAYIN_API_URL=https://your-krayin-instance.com/api/v1
@@ -474,6 +481,39 @@ GET /health
 ```
 
 **Respuesta**: `{"status": "ok"}`
+
+### DDoS Protection Stats
+
+```http
+GET /ddos-stats
+```
+
+**Respuesta**:
+```json
+{
+  "global_limiter": {
+    "requests_last_minute": 45,
+    "limit": 100,
+    "oldest_timestamp": "2026-01-25 13:20:15"
+  },
+  "new_numbers": {
+    "new_numbers_last_minute": 3,
+    "limit": 20,
+    "suspicious_mode": false,
+    "known_numbers_count": 127
+  },
+  "circuit_breaker": {
+    "state": "closed",
+    "failure_count": 0,
+    "last_failure": null
+  },
+  "blacklist": {
+    "blacklist_count": 2,
+    "whitelist_count": 1,
+    "suspicious_count": 0
+  }
+}
+```
 
 ### Memory Inspection
 
@@ -902,6 +942,288 @@ ERROR python-agent: [CRM] Error al registrar lead: Connection timeout
 2026-01-20 00:50:07 INFO httpx: HTTP Request: POST https://evoapi.sisnova.com.ar/... "HTTP/1.1 201 Created"
 ```
 
+## Sistema de Protección DDoS
+
+### Descripción General
+
+Sistema de protección multi-capa diseñado para prevenir ataques de denegación de servicio (DDoS) utilizando múltiples números de teléfono. Implementa 5 capas de defensa que trabajan en conjunto para proteger el chatbot.
+
+### Arquitectura de 5 Capas
+
+```
+┌─────────────────────────────────────────────┐
+│  Mensaje entrante de WhatsApp               │
+└───────────────┬─────────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────────┐
+│  Capa 1: Whitelist/Blacklist                │
+│  - Números del propietario siempre permitidos│
+│  - Números bloqueados rechazados             │
+└───────────────┬─────────────────────────────┘
+                │ ✅ Permitido
+                ▼
+┌─────────────────────────────────────────────┐
+│  Capa 2: Circuit Breaker                    │
+│  - Protección contra sobrecarga del sistema  │
+│  - Abre después de 10 fallos consecutivos    │
+└───────────────┬─────────────────────────────┘
+                │ ✅ Sistema saludable
+                ▼
+┌─────────────────────────────────────────────┐
+│  Capa 3: Rate Limiter Global                │
+│  - Límite de mensajes totales por minuto     │
+│  - Default: 100 mensajes/minuto              │
+└───────────────┬─────────────────────────────┘
+                │ ✅ Bajo límite
+                ▼
+┌─────────────────────────────────────────────┐
+│  Capa 4: Detector de Números Nuevos         │
+│  - Rastrea números nunca vistos              │
+│  - Modo sospechoso: 10+ números nuevos/min   │
+│  - Bloquea números desconocidos por 5 min    │
+└───────────────┬─────────────────────────────┘
+                │ ✅ Número conocido o permitido
+                ▼
+┌─────────────────────────────────────────────┐
+│  ✅ Mensaje procesado por el agente          │
+└─────────────────────────────────────────────┘
+```
+
+### Capas de Protección
+
+#### 1. GlobalRateLimiter
+**Propósito**: Limitar el total de mensajes que el sistema puede procesar por minuto.
+
+**Configuración**:
+- `DDOS_GLOBAL_MAX_RPM`: Máximo de mensajes por minuto (default: 100)
+
+**Comportamiento**:
+- Mantiene ventana deslizante de 60 segundos
+- Rechaza mensajes cuando se alcanza el límite
+- Se resetea automáticamente cada minuto
+
+#### 2. NewNumberDetector
+**Propósito**: Detectar patrones anómalos de números nuevos (ataque con múltiples números).
+
+**Configuración**:
+- `DDOS_MAX_NEW_NUMBERS_PM`: Máximo números nuevos por minuto (default: 20)
+- `DDOS_SUSPICIOUS_THRESHOLD`: Umbral para modo sospechoso (default: 10)
+
+**Comportamiento**:
+- Rastrea todos los números que contactan al bot
+- Si detecta más de 10 números nuevos en 1 minuto → activa "modo sospechoso"
+- En modo sospechoso: bloquea números desconocidos por 5 minutos
+- Números conocidos pueden seguir enviando mensajes
+
+#### 3. CircuitBreaker
+**Propósito**: Proteger el sistema cuando está sobrecargado o con errores.
+
+**Configuración**:
+- Umbral de fallos: 10 fallos consecutivos
+- Tiempo de recuperación: 60 segundos
+
+**Estados**:
+- **Closed** (normal): Procesa todos los mensajes
+- **Open** (protección): Rechaza todos los mensajes
+- **Half-Open** (prueba): Permite 1 mensaje de prueba
+
+#### 4. NumberBlacklist
+**Propósito**: Gestión manual y automática de números bloqueados/permitidos.
+
+**Configuración**:
+- `DDOS_OWNER_NUMBERS`: Números siempre en whitelist (separados por coma)
+
+**Características**:
+- **Whitelist**: Números del propietario nunca son bloqueados
+- **Blacklist manual**: Agregar números específicos
+- **Auto-blacklist**: 3 reportes de comportamiento sospechoso = bloqueo automático
+
+#### 5. DDoSProtection (Interfaz Unificada)
+**Propósito**: Coordinar todas las capas de protección.
+
+**Flujo de verificación**:
+1. Verificar blacklist/whitelist
+2. Verificar circuit breaker
+3. Verificar rate limit global
+4. Verificar detector de números nuevos
+5. ✅ Permitir o ❌ Bloquear
+
+### Configuración
+
+**Ubicación**: `ddos_protection.py` línea 326
+
+```python
+# Instancia global con configuración por defecto
+ddos_protection = DDoSProtection(
+    global_max_rpm=100,           # 100 mensajes/minuto total
+    max_new_numbers_pm=20,        # 20 números nuevos/minuto
+    suspicious_threshold=10,      # Modo sospechoso con 10 nuevos
+    owner_numbers=['5491131376731']  # Propietario en whitelist
+)
+```
+
+**Variables de entorno** (.env):
+```ini
+DDOS_GLOBAL_MAX_RPM=100
+DDOS_MAX_NEW_NUMBERS_PM=20
+DDOS_SUSPICIOUS_THRESHOLD=10
+DDOS_OWNER_NUMBERS=5491131376731,5491144125978  # Múltiples números separados por coma
+```
+
+### Integración en el Webhook
+
+**Ubicación**: `agent.py` líneas 570-576
+
+```python
+# 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad
+if remitente and not from_me:
+    puede_procesar, mensaje_error = ddos_protection.puede_procesar(remitente)
+    if not puede_procesar:
+        logger.warning(f"DDoS Protection: bloqueando mensaje de {remitente}: {mensaje_error}")
+        # NO enviar mensaje automático para prevenir loops
+        return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
+```
+
+### Mensajes de Bloqueo
+
+Cuando un mensaje es bloqueado, el usuario recibe HTTP 429 (Too Many Requests) pero **NO se envía mensaje automático** para prevenir loops infinitos.
+
+**Mensajes según la capa**:
+- **Blacklist**: "⚠️ Número bloqueado. Contacta con soporte."
+- **Circuit Breaker**: "⚠️ Sistema temporalmente no disponible. Intenta en unos minutos."
+- **Rate Limit Global**: "⚠️ Sistema con alta carga. Intenta en un momento."
+- **Números Nuevos (modo sospechoso)**: "⚠️ Número no reconocido. Espera 5 minutos y reintenta."
+
+### Monitoreo
+
+#### Endpoint de Estadísticas
+
+```bash
+curl http://localhost:5000/ddos-stats
+```
+
+**Respuesta**:
+```json
+{
+  "global_limiter": {
+    "requests_last_minute": 45,
+    "limit": 100
+  },
+  "new_numbers": {
+    "new_numbers_last_minute": 3,
+    "suspicious_mode": false,
+    "known_numbers_count": 127
+  },
+  "circuit_breaker": {
+    "state": "closed",
+    "failure_count": 0
+  },
+  "blacklist": {
+    "blacklist_count": 2,
+    "whitelist_count": 1,
+    "suspicious_count": 0
+  }
+}
+```
+
+#### Logs de Protección
+
+```bash
+# Ver bloqueos en tiempo real
+tail -f sisagent_verbose.log | grep "DDoS Protection"
+
+# Estadísticas de bloqueos por hora
+grep "DDoS Protection: bloqueando" sisagent_verbose.log | wc -l
+
+# Ver números bloqueados
+grep "bloqueando mensaje de" sisagent_verbose.log | awk '{print $NF}' | sort | uniq -c
+```
+
+**Ejemplos de logs**:
+```
+2026-01-25 13:21:00 INFO agent: DDoSProtection inicializado con todas las capas de protección
+2026-01-25 13:21:00 INFO agent: DDoSProtection: número del propietario en whitelist: 5491131376731
+2026-01-25 13:25:30 WARNING agent: DDoS Protection: bloqueando mensaje de 5491199887766: ⚠️ Sistema con alta carga
+2026-01-25 13:26:15 WARNING agent: NewNumberDetector: modo sospechoso activado (12 números nuevos en 1 minuto)
+2026-01-25 13:26:20 WARNING agent: DDoS Protection: bloqueando mensaje de 5491155443322: ⚠️ Número no reconocido
+```
+
+### Configuraciones Recomendadas
+
+| Tipo de Negocio | Global RPM | Nuevos/min | Threshold | Descripción |
+|-----------------|------------|------------|-----------|-------------|
+| **Pequeño** | 50 | 10 | 5 | Bajo volumen, alta protección |
+| **Mediano** | 100 | 20 | 10 | Balance entre servicio y protección |
+| **Grande** | 200 | 40 | 20 | Alto volumen, protección moderada |
+| **Empresa** | 500 | 100 | 50 | Muy alto volumen, protección básica |
+
+### Gestión de Whitelist/Blacklist
+
+#### Agregar número a whitelist
+
+```python
+# En Python (desde agent.py o consola)
+from ddos_protection import ddos_protection
+
+ddos_protection.agregar_a_whitelist('5491144125978')
+```
+
+#### Agregar número a blacklist
+
+```python
+ddos_protection.blacklist.add_to_blacklist('5491199887766', reason='spam')
+```
+
+#### Ver estadísticas
+
+```python
+stats = ddos_protection.get_stats()
+print(f"Números bloqueados: {stats['blacklist']['blacklist_count']}")
+print(f"Números permitidos: {stats['blacklist']['whitelist_count']}")
+```
+
+### Pruebas de Carga
+
+**Script de prueba**: `load_test_concurrency.py`
+
+```bash
+# Simular 100 mensajes con 50 concurrentes
+./venv/bin/python load_test_concurrency.py 100 50
+
+# Resultado esperado:
+# - Primeros ~100 mensajes procesados (bajo límite)
+# - Resto bloqueados con HTTP 429
+# - Sistema se recupera automáticamente en 1 minuto
+```
+
+### Prevención de Loops Infinitos
+
+⚠️ **IMPORTANTE**: El sistema **NO envía mensajes automáticos** cuando bloquea a un usuario. Esto previene loops infinitos donde:
+
+1. Usuario bloqueado recibe mensaje de error
+2. Mensaje de error genera webhook
+3. Webhook genera otro mensaje de error
+4. Loop infinito ♾️
+
+**Solución implementada**: Solo retornar HTTP 429 sin enviar mensaje de WhatsApp.
+
+### Limitaciones
+
+- ❌ **No persistente**: Estadísticas se pierden al reiniciar el agente
+- ❌ **Memoria RAM**: Tracking de números conocidos en memoria
+- ✅ **Efectivo**: Bloquea ataques DDoS con múltiples números
+- ✅ **Configurable**: Todos los umbrales son ajustables
+- ✅ **Sin falsos positivos**: Números del propietario siempre permitidos
+
+### Mejoras Futuras
+
+1. **Persistencia en Redis**: Mantener estadísticas entre reinicios
+2. **Dashboard Web**: Visualización en tiempo real de protección
+3. **Notificaciones**: Alertas cuando se activa modo sospechoso
+4. **Machine Learning**: Detección automática de patrones de ataque
+5. **IP Blocking**: Integración con Nginx/Cloudflare para bloqueo a nivel de red
+
 ## Ejecución en Producción
 
 ### Usando el Script de Gestión (Recomendado)
@@ -1064,6 +1386,53 @@ ss -ltnp | grep ':5000'
    - Link directo a página de reservas de Google Calendar
    - Sin necesidad de autenticación OAuth
    - Una sola herramienta: `enviar_link_reserva`
+
+### Componentes Adicionales (Rate_Limiter, Intent_Detector, FAQ_Cache)
+
+#### Rate_Limiter
+**Propósito**: Limitar la cantidad de mensajes que el agente acepta por usuario y a nivel global para evitar abuso y proteger la capacidad del sistema.
+
+**Características**:
+- Limite por usuario configurable (env: `RATE_LIMITER_MAX_MENSAJES`, default: 5)
+- Ventana temporal configurable en minutos (env: `RATE_LIMITER_WINDOWS_MINUTES`, default: 1)
+- Cooldown automático cuando se excede el límite (env: `RATE_LIMITER_COOLDOWN_MINUTES`, default: 5)
+- Registra eventos en logs y retorna HTTP 429 cuando aplica
+
+**Integración**:
+- Se instancia en `agent_metrics.py` y se utiliza antes de procesar mensajes entrantes
+- Logs: `RateLimiter: usuario X excedió límite` y estado inicial `RateLimiter inicializado: max=...`
+
+#### Intent_Detector
+**Propósito**: Analizar texto entrante para identificar intención (reserva, consulta de precios, saludo, etc.) y enrutar acciones (ej. enviar link de reserva, invocar CRM).
+
+**Características**:
+- Detección basada en reglas + heurísticas del LLM
+- Devuelve categorías como `reserva`, `consulta_precios`, `saludo`, `otro`
+- Usado para activar flujos concretos (booking, FAQ, fallback)
+
+**Integración**:
+- Llamado desde `procesar_mensaje()` en `agent.py` antes de invocar LLM para respuestas completas
+- Logs: `IntentDetector: intent=... confidence=...`
+- Permite optimizaciones: if intent == 'faq' → usar `FAQ_Cache` antes de llamar al LLM
+
+#### FAQ_Cache
+**Propósito**: Cachear respuestas frecuentes (preguntas frecuentes) para reducir llamadas al LLM y mejorar latencia/costes.
+
+**Características**:
+- Entrada/Salida en memoria con TTL (configurable)
+- Clave basada en huella del texto (normalizado)
+- Hit ratio registrado en métricas
+
+**Integración**:
+- Consultado por `Intent_Detector` cuando detecta intención `faq`
+- Si existe cache hit se devuelve respuesta inmediatamente y se registra `FAQ_Cache: HIT`
+- Si miss → se invoca LLM y se guarda la respuesta en cache
+
+**Variables de entorno recomendadas**:
+- `FAQ_CACHE_TTL_SECONDS` (default: 3600)
+- `FAQ_CACHE_MAX_ITEMS` (default: 1000)
+
+---
 
 3. ✅ **Finalización inteligente de conversaciones** (COMPLETADO):
    - Detecta mensajes genéricos después de enviar link
@@ -1280,11 +1649,22 @@ Para preguntas o soporte, contactar al equipo de desarrollo interno.
 
 ---
 
-**Versión**: 2.0.0  
-**Última actualización**: 2026-01-21  
+**Versión**: 2.1.0  
+**Última actualización**: 2026-01-25  
 **Autor**: Sisnova Tech Team
 
 ### Changelog
+
+#### v2.1.0 (2026-01-25)
+- ✅ Sistema de protección DDoS multi-capa (5 capas de defensa)
+- ✅ GlobalRateLimiter: límite de mensajes totales por minuto
+- ✅ NewNumberDetector: detección de ataques con múltiples números
+- ✅ CircuitBreaker: protección contra sobrecarga del sistema
+- ✅ NumberBlacklist/Whitelist: gestión manual y automática de números
+- ✅ Endpoint /ddos-stats para monitoreo en tiempo real
+- ✅ Prevención de loops infinitos en bloqueos
+- ✅ Whitelist automática de números del propietario
+- ✅ Configuración flexible vía variables de entorno
 
 #### v2.0.0 (2026-01-21)
 - ✅ Sistema de reservas simplificado con link directo a Google Calendar
