@@ -9,11 +9,21 @@ import logging
 from logging.handlers import RotatingFileHandler
 import httpx
 import requests
-from langchain_anthropic import ChatAnthropic
 from langchain_community.llms import HuggingFaceHub
 from langchain_community.chat_models import ChatHuggingFace
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
 from langchain_classic.memory import ConversationBufferMemory
+
+from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
+# NOTA: Importamos desde .postgres, NO desde .postgres.aio
+from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg_pool import ConnectionPool
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request as GoogleRequest
@@ -22,12 +32,36 @@ import pickle
 import json
 import uuid
 from dotenv import load_dotenv
+import google.auth
+from google.auth.credentials import AnonymousCredentials
 
+# --- INICIO DE LA ZONA DE PARCHES (NO TOCAR) ---
+# 1. LIMPIEZA DE VENENO: Aseguramos que NO exista la variable de credenciales
+# Si existe y está vacía o apunta a algo malo, hace fallar todo.
+if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
+    del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+
+# 2. Configurar el proyecto fantasma ANTES de importar nada de Google
+os.environ["GOOGLE_CLOUD_PROJECT"] = "proyecto-bypass-gemini"
+
+# 3. INICIALIZACIÓN FORZADA (El paso que faltaba)
+try:
+    from google.cloud import aiplatform
+    # Esto le dice a la librería: "Ya estoy configurado, no busques nada más"
+    # Al pasar location y project, evitamos que busque credenciales de red.
+    aiplatform.init(
+        project="proyecto-bypass-gemini",
+        location="us-central1"
+    )
+    print("🟢 Vertex AI inicializado manualmente (Bypass activo).")
+except ImportError:
+    pass
+
+# --- FIN DE LA ZONA DE PARCHES ---
 
 # Cargar variables de entorno lo antes posible para que módulos importados posteriormente
 # (por ejemplo `agent_control`) reciban las variables desde .env
-load_dotenv()
-
+load_dotenv(override=True)
 
 # ===============================================================================
 # === Configurar logging con rotación de archivos para evitar llenar el disco ===
@@ -64,6 +98,27 @@ logger.info(f"🚀 >======> Starting from reboot...")
 logger.debug("="*80)
 # ===============================================================================
 
+# Configurar el saver de Postgres para LangGraph
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_NAME = os.getenv('DB_NAME_AGENT', 'checkpointer_db')
+DB_USER = os.getenv('DB_USER', 'sisbot_user')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'postgres_password')
+DB_PORT = os.getenv('DB_PORT', '5432')
+
+DB_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Creamos un Pool de conexiones real.
+# min_size=1: Siempre mantiene al menos 1 conexión viva.
+# max_size=20: Puede crecer hasta 20 conexiones simultáneas si hay mucho tráfico.
+connection_pool = ConnectionPool(
+    conninfo=DB_URI, 
+    min_size=1, 
+    max_size=20,
+    kwargs={"autocommit": True}
+)
+
+# Creamos el checkpointer global usando ese pool
+checkpointer = PostgresSaver(connection_pool)
 
 # =========Importar external_instructions y herramientas del agente ============
 try:
@@ -602,7 +657,7 @@ def crear_agente():
     logger.debug("LLM instance created: %s", type(llm).__name__)
     return llm
 
-
+# Patron factory para obtener el modelo LLM según configuración
 def get_llm_model(provider_override=None):
     """Retorna el modelo LLM según la configuración
     
@@ -612,74 +667,65 @@ def get_llm_model(provider_override=None):
     provider = (provider_override or LLM_PROVIDER).lower()
     logger.debug("Configuring LLM provider: %s", provider)
     
+    # --- 1. GEMINI --- 
     if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
         model_name = os.getenv("GEMINI_MODEL", "")
+        os.environ["GOOGLE_CLOUD_PROJECT"] = "proyecto-fantasma-para-bypass"
+        api_key = GEMINI_API_KEY
         logger.debug("Using Google Gemini model: %s", model_name)
-        return ChatGoogleGenerativeAI(
+        return ChatGoogleGenerativeAI(           
             model=model_name,
-            google_api_key=GEMINI_API_KEY,
-            temperature=0.8,
+            google_api_key= api_key,
+            temperature=0,
+            transport="rest",
+            convert_system_message_to_human=True, 
             max_tokens=2048,
         )
     
+    # --- 2. ANTHROPIC --- 
     elif provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
+        # Asegúrate de tener la variable de entorno: ANTHROPIC_API_KEY
         return ChatAnthropic(
-            model="claude-sonnet-4-20250514",
-            api_key=ANTHROPIC_API_KEY,
-            temperature=0.7
+            model="claude-3-5-sonnet-latest", 
+            temperature=0,
+            max_tokens=4096  # Claude a veces requiere definir el límite de salida
         )
-    
+
+    # --- 3. HUGGING FACE (Inference API) ---    
+    # Usamos la API Serverless (o Endpoints dedicados)
     elif provider == "huggingface":
         model_id = os.getenv("HF_MODEL", "")
         logger.debug("Using HuggingFace API for model: %s", model_id)
-        
-        from huggingface_hub import InferenceClient
-        
-        # Wrapper para HuggingFace con chat_completion
-        class HFChatWrapper:
-            def __init__(self, model, token):
-                self.model = model
-                self.client = InferenceClient(token=token)
-            
-            def invoke(self, messages: List):
-                # Convertir mensajes al formato de HuggingFace
-                hf_messages = []
-                for m in messages:
-                    role = type(m).__name__
-                    if role == 'SystemMessage':
-                        hf_messages.append({"role": "system", "content": m.content})
-                    elif role == 'HumanMessage':
-                        hf_messages.append({"role": "user", "content": m.content})
-                    elif role == 'AIMessage':
-                        hf_messages.append({"role": "assistant", "content": m.content})
-                
-                try:
-                    response = self.client.chat_completion(
-                        messages=hf_messages,
-                        model=self.model,
-                        max_tokens=512,
-                        temperature=0.7,
-                    )
-                    content = response.choices[0].message.content
-                    return type("Resp", (), {"content": content})()
-                except Exception as e:
-                    logger.error(f"Error calling HuggingFace: {e}")
-                    return type("Resp", (), {"content": "Lo siento, hubo un error al procesar tu solicitud."})()
-        
-        return HFChatWrapper(model_id, HUGGINGFACE_API_KEY)
+        # Primero conectamos al Endpoint
+        llm = HuggingFaceEndpoint(
+            repo_id=model_id, 
+            task="text-generation",
+            max_new_tokens=512,
+            do_sample=False,
+        )
+        # Luego lo "envolvemos" para que tenga interfaz de Chat
+        return ChatHuggingFace(llm=llm)
     
+    # --- 4. OPENAI --- 
     elif provider == "openai":
-        from langchain_openai import ChatOpenAI
         model_name = os.getenv("OPENAI_MODEL", "")
         logger.debug("Using OpenAI model: %s", model_name)
         return ChatOpenAI(
             model=model_name,
             api_key=OPENAI_API_KEY,
-            temperature=0.7
+            temperature=0
         )
     
+    # --- 5. GROK --- 
+    # Grok usa el SDK de OpenAI pero cambiando la URL base
+    elif provider == "grok":
+        return ChatOpenAI(
+            model="grok-2", # O el modelo más reciente
+            openai_api_base="https://api.x.ai/v1", # Endpoint de xAI
+            openai_api_key=os.environ.get("XAI_API_KEY"),
+            temperature=0
+        )
+
     elif provider == "ollama":
         # Para modelos locales con Ollama
         from langchain_community.chat_models import ChatOllama
@@ -887,6 +933,50 @@ def es_horario_laboral():
     return (ahora.weekday() in allowed_weekdays) and (start_hour <= ahora.hour < end_hour)
 
 
+# Herramienta de ejemplo: consulta del clima
+def get_weather(city: str):
+    """Consulta el clima."""
+    return f"Clima en {city}: Soleado, 25°C."
+
+
+# Registrar herramientas disponibles
+tools = [get_weather]
+
+
+# setup() crea las tablas si no existen.
+def setup_database():
+    checkpointer.setup()
+    logger.info("Database setup completed successfully.")
+
+
+# Ejecutamos setup una vez al arrancar 
+try:
+    setup_database()
+except Exception as e:
+    logger.warning(f"Advertencia de DB: {e}")
+
+
+# En la vida real, esto vendría de una tabla SQL "clients_config"
+CLIENT_PROMPTS = {
+    "cliente_abogado": (
+        "Eres un experto legal sarcástico. "
+        "Usa terminología jurídica compleja para todo. "
+        "Si te preguntan por el clima, cita leyes sobre meteorología."
+    ),
+    "cliente_medico": (
+        "Eres un asistente médico empático y suave. "
+        "Trata al usuario como 'paciente'. "
+        "Si preguntan por el clima, advierte sobre resfriados."
+    ),
+    "default": "Eres un asistente útil y neutral."
+}
+
+
+def get_system_prompt(prompt_id):
+    """Busca la configuración específica del cliente."""
+    return CLIENT_PROMPTS.get(prompt_id, CLIENT_PROMPTS["default"])
+
+
 def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
     """Procesa un mensaje usando el LLM"""
     try:
@@ -901,14 +991,14 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 return OUTSIDE_BUSINESS_HOURS_MSG
 
         # Obtener memoria del usuario
-        memory = get_memory(user_id)
+        # memory = get_memory(user_id)
 
         # Extraer información de lead 
         extract_lead_info(user_id, mensaje, client_name=client_name)
         
         # Detectar si es el primer mensaje (saludo inicial)
-        is_first_message = len(memory.chat_memory.messages) == 0
-        logger.debug(f"[MEMORY] user_id={user_id} tiene {len(memory.chat_memory.messages)} mensajes en memoria")
+        #is_first_message = len(memory.chat_memory.messages) == 0
+        #logger.debug(f"[MEMORY] user_id={user_id} tiene {len(memory.chat_memory.messages)} mensajes en memoria")
 
         # 1. RATE LIMITING
         if RATE_LIMITER_ENABLED:
@@ -927,8 +1017,8 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 nombre = client_name
                 respuesta = detector_intenciones.respuesta_rapida('saludo', nombre)
                 registrar_metrica(user_id, mensaje, inicio, intencion='saludo', fue_cache=True)
-                with memory_lock:  
-                    memory.chat_memory.add_ai_message(respuesta)
+                #with memory_lock:  
+                #    memory.chat_memory.add_ai_message(respuesta)
                 return respuesta
             if intencion == 'despedida' and len(mensaje.split()) <= 2:
                 logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo despedida rápida para user_id={user_id} nombre={client_name}")
@@ -948,29 +1038,71 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 return respuesta_cache
         
         # Crear sistema de prompt enriquecido
-        system_prompt = AGENT_INSTRUCTION
-        if RICH_PROMPTS_DATE_NOW:
-            system_prompt += f"\nLa fecha y hora actual es: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
-        if RICH_PROMPTS_CLIENT_NAME:
-            system_prompt += f"\nEl nombre del usuario que envía el mensaje es: {client_name}" if client_name else ""
-        if RICH_PROMPTS_BOOKING_STATUS:
-            booking_status = getattr(memory, 'booking_sent', False)
-            system_prompt += f"\n\n🚨 ESTADO: booking_sent = {booking_status}"
-        if RICH_PROMPTS_FIRST_MESSAGE:
-            system_prompt += f"\n\n🚨 ESTADO: is_first_message = {is_first_message}"
+        # system_prompt = AGENT_INSTRUCTION
+        # if RICH_PROMPTS_DATE_NOW:
+        #     system_prompt += f"\nLa fecha y hora actual es: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
+        # if RICH_PROMPTS_CLIENT_NAME:
+        #     system_prompt += f"\nEl nombre del usuario que envía el mensaje es: {client_name}" if client_name else ""
+        # if RICH_PROMPTS_BOOKING_STATUS:
+        #     booking_status = getattr(memory, 'booking_sent', False)
+        #     system_prompt += f"\n\n🚨 ESTADO: booking_sent = {booking_status}"
+        # if RICH_PROMPTS_FIRST_MESSAGE:
+        #     system_prompt += f"\n\n🚨 ESTADO: is_first_message = {is_first_message}"
         
         #logger.debug(f"[PROMPT] Sistema para user_id={user_id}:\n{system_prompt}")
         
+        # A. Recuperamos la "Personalidad" de este cliente
+        system_instruction = get_system_prompt("default")
+        logger.debug(f"[PROMPT CLIENTE] user_id={user_id} instrucción personalizada:\n{system_instruction}")
+
+        # 3. CREACIÓN DEL AGENTE
+        llm = obtener_model_name_por_provider(LLM_PROVIDER)
+
+        # B. Creamos el Agente "Customizado" para esta request
+        # Pasamos el 'checkpointer' GLOBAL.
+        # El parámetro 'state_modifier' inyecta el System Prompt.
+        agent = create_react_agent(
+            llm, 
+            tools, 
+            checkpointer=checkpointer,
+            prompt=system_instruction  # <--- PROMPT PERSONALIZADO AQUÍ
+        )
+
+        config = {"configurable": {"thread_id": user_id},
+        "recursion_limit": 5  # <--- AGREGA ESTO: Falla rápido si entra en bucle
+        }
+    
+        try:
+            # LangGraph mezcla el historial guardado en Postgres + el nuevo Prompt del sistema
+            response = agent.invoke(
+                {"messages": [("human", message)]},
+                config=config
+            )
+        
+            respuesta = response["messages"][-1].content
+            logger.debug(f"[RESPUESTA DEL AGENTE] user_id={user_id} respuesta={str(respuesta)[:100]}...")
+            return respuesta
+            # return jsonify({
+            #     "response": respuesta,
+            #     "thread_id": client_id
+            #})
+
+        except Exception as e:
+            # Es buena práctica loguear el error real
+            print(f"Error en chat: {e}")
+            return jsonify({"error": "Error procesando solicitud"}), 500
+
+
         # Construir mensajes
-        messages = [SystemMessage(content=system_prompt)]
-        messages.extend(memory.chat_memory.messages)
-        messages.append(HumanMessage(content=mensaje))
+        # messages = [SystemMessage(content=system_prompt)]
+        # messages.extend(memory.chat_memory.messages)
+        # messages.append(HumanMessage(content=mensaje))
         
         # Invocar LLM con sistema de fallback
         try:
-            LLM_MODEL_NAME = obtener_model_name_por_provider(LLM_PROVIDER)
-            respuesta_llm = agente.invoke(messages)
-            respuesta = respuesta_llm.content
+            # LLM_MODEL_NAME = obtener_model_name_por_provider(LLM_PROVIDER)
+            # respuesta_llm = agente.invoke(messages)
+            # respuesta = respuesta_llm.content
             # LOG DEL MENSAJE ENVIADO AL LLM
             logger.debug("="*80)
             logger.debug(f"[MENSAJE AL LLM]: {mensaje}")
@@ -1046,8 +1178,8 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 pass  # Si no es JSON válido, usar la respuesta como está
         
         # Guardar en memoria el mensaje del usuario (thread-safe)
-        with memory_lock:
-            memory.chat_memory.add_user_message(mensaje)
+        #with memory_lock:
+        #    memory.chat_memory.add_user_message(mensaje)
 
         # Si la respuesta es un dict con botón, guardar el texto del contenido
         if isinstance(respuesta, dict) and respuesta.get('type') == 'button':
@@ -1056,12 +1188,12 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
             respuesta_texto = str(respuesta)
 
         # Guardar en memoria (thread-safe)
-        with memory_lock:  
-            memory.chat_memory.add_ai_message(respuesta_texto)
+        #with memory_lock:  
+        #    memory.chat_memory.add_ai_message(respuesta_texto)
         
         # Truncar memoria si excede el límite
-        with memory_lock:
-            truncate_memory(memory)
+        #with memory_lock:
+        #    truncate_memory(memory)
         
         # 5. GUARDAR EN CACHE (solo mensajes cortos y generales)
         #and intencion in ['consulta_precio', 'consulta_horario']:
@@ -1244,6 +1376,12 @@ def memory_detail(user_id: str):
     return {"user_id": user_id, "count": len(msgs), "messages": msgs}
 
 
+# --- 3. LIMPIEZA DEL POOL DE POSTGRESAL CERRAR ---
+# Esto asegura que las conexiones se cierren bien si apagas el server
+import atexit
+atexit.register(connection_pool.close)
+
+
 if __name__ == '__main__':
 
     # Servidor
@@ -1273,7 +1411,7 @@ if __name__ == '__main__':
             host='0.0.0.0',
             port=5000,
             threaded=True,  # Importante: habilitar threading
-            debug=False     # Cambiar a False en producción
+            debug=True    # Cambiar a False en producción
         )
     finally:
         # Detener scheduler al cerrar la aplicación

@@ -1,6 +1,7 @@
 # Sistema de Métricas con PostgreSQL (Implementación lista para usar)
 
 import psycopg2
+from psycopg2 import sql
 from psycopg2.extras import execute_batch
 from psycopg2 import pool
 from datetime import datetime, timedelta
@@ -14,13 +15,13 @@ import logging
 # Usar el logger principal configurado en agent.py
 logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
 
-# Configuración de PostgreSQL
+# Configuración de PostgresSQL
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST_METRICS', 'localhost'),
-    'database': os.getenv('DB_NAME_METRICS', 'sisbot_cliente_1'),
-    'user': os.getenv('DB_USER_METRICS', 'sisbot_user'),
-    'password': os.getenv('DB_PASSWORD_METRICS', 'postgres_password'),
-    'port': os.getenv('DB_PORT_METRICS', '5432')
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'database': os.getenv('DB_NAME_METRICS', 'metrics_db'),
+    'user': os.getenv('DB_USER', 'sisbot_user'),
+    'password': os.getenv('DB_PASSWORD', 'postgres_password'),
+    'port': os.getenv('DB_PORT', '5432')
 }
 
 # Pool de conexiones (inicialización lazy para evitar errores al importar)
@@ -38,8 +39,40 @@ def _get_connection_pool():
             )
             logger.info("✅ Pool de conexiones PostgreSQL inicializado")
         except Exception as e:
+            msg = str(e).lower()
             logger.error(f"❌ Error conectando a PostgreSQL: {e}")
-            raise
+            # Si la causa es que la base de datos no existe, intentar crearla
+            if 'does not exist' in msg or 'database "' in msg and 'does not exist' in msg:
+                dbname = DB_CONFIG.get('database')
+                logger.warning(f"🛠️  Intentando crear la base de datos '{dbname}' porque no existe")
+                try:
+                    # Intentar conectar a la base 'postgres' para crear la base objetivo
+                    tmp_conf = DB_CONFIG.copy()
+                    tmp_conf['database'] = 'postgres'
+                    conn = psycopg2.connect(**tmp_conf)
+                    conn.autocommit = True
+                    cur = conn.cursor()
+                    # Verificar existencia por si otro proceso la creó
+                    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+                    if cur.fetchone() is None:
+                        cur.execute(sql.SQL("CREATE DATABASE {} OWNER {};").format(
+                            sql.Identifier(dbname), sql.Identifier(DB_CONFIG.get('user'))
+                        ))
+                        logger.info(f"✅ Base de datos '{dbname}' creada correctamente")
+                    cur.close()
+                    conn.close()
+                    # Reintentar crear el pool
+                    connection_pool = psycopg2.pool.ThreadedConnectionPool(
+                        minconn=1,
+                        maxconn=10,
+                        **DB_CONFIG
+                    )
+                    logger.info("✅ Pool de conexiones PostgreSQL inicializado tras crear la DB")
+                except Exception as e2:
+                    logger.error(f"❌ No fue posible crear la base de datos '{dbname}': {e2}")
+                    raise
+            else:
+                raise
     return connection_pool
 
 @dataclass

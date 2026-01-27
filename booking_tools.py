@@ -31,7 +31,7 @@ CRM_AUTO_REGISTER = os.getenv('CRM_AUTO_REGISTER', 'true').lower() == 'true'
 # Configuración de Google Sheets (opcional)
 GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'false').lower() == 'true'
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')
-GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
+#GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
 
 try:
     from external_instructions import BOOKING_MESSAGE
