@@ -1,249 +1,46 @@
-from collections import defaultdict
+# Sistema de Métricas con PostgreSQL (Implementación lista para usar)
+
+import psycopg2
+from psycopg2.extras import execute_batch
+from psycopg2 import pool
 from datetime import datetime, timedelta
-import time
-from threading import Lock
-from typing import Optional
-import logging
+from dataclasses import dataclass, asdict
+from typing import List, Dict, Optional
 import os
+from threading import Lock
+import time
+import logging
 
-# Configuración
-RATE_LIMITER_MAX_MENSAJES = int(os.getenv("RATE_LIMITER_MAX_MENSAJES", 15))          # Mensajes permitidos
-RATE_LIMITER_WINDOWS_MINUTES = int(os.getenv("RATE_LIMITER_WINDOWS_MINUTES", 1))       # Ventana de tiempo en minutos
-RATE_LIMITER_COOLDOWN_MINUTES = int(os.getenv("RATE_LIMITER_COOLDOWN_MINUTES", 5))      # Tiempo de bloqueo en minutos
 # Usar el logger principal configurado en agent.py
-logger = logging.getLogger('agent')
+logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
 
-try:
-    from external_instructions import SALUDO, DESPEDIDA, CONSULTA_PRECIOS
-    if not SALUDO or not DESPEDIDA or not CONSULTA_PRECIOS:
-        raise ValueError("Faltan instrucciones en external_instructions.py")
-except Exception as e:
-    logger.error(f"❌ Error importando external_instructions: {type(e).__name__}: {e}")
-    import traceback
-    traceback.print_exc()
-    SALUDO = """
-¡Gracias por escribirnos!
-Soy el agente automático de Sisnova 🤖
+# Configuración de PostgreSQL
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST_METRICS', 'localhost'),
+    'database': os.getenv('DB_NAME_METRICS', 'sisbot_cliente_1'),
+    'user': os.getenv('DB_USER_METRICS', 'sisbot_user'),
+    'password': os.getenv('DB_PASSWORD_METRICS', 'postgres_password'),
+    'port': os.getenv('DB_PORT_METRICS', '5432')
+}
 
-📈 ¿A qué se dedica tu empresa o emprendimiento y cuántos mensajes reciben por día??
-"""
-    DESPEDIDA = """
-Si tienes más preguntas, no dudes en escribirme.
-¡Que tengas un excelente día!! 👋
-"""
-    CONSULTA_PRECIOS = """
-    Los planes se personalizan según tu volumen de mensajes y necesidades específicas.
-En la consulta gratuita de 30 minutos analizamos tu caso particular y te armamos una propuesta a medida con precios transparentes.
-¿Te gustaría agendar una reunión para que podamos darte números concretos para tu negocio?? 🎯
-"""
+# Pool de conexiones (inicialización lazy para evitar errores al importar)
+connection_pool = None
 
-# ==========================================
-# 1. RATE LIMITING (Prevenir spam y abuso)
-# ==========================================
-
-class RateLimiter:
-    """Limita mensajes por usuario para prevenir abuso"""
-    
-    def __init__(self, max_mensajes=10, ventana_minutos=1, cooldown_minutos=5):
-        self.max_mensajes = max_mensajes
-        self.ventana_segundos = ventana_minutos * 60
-        self.cooldown_segundos = cooldown_minutos * 60
-        self.usuarios = defaultdict(list)
-        self.bloqueados = {}
-        self.lock = Lock()
-        logger.debug("RateLimiter inicializado: max=%s ventana_minutos=%s cooldown_minutos=%s", max_mensajes, ventana_minutos, cooldown_minutos)
-    
-    def puede_procesar(self, user_id: str) -> tuple[bool, str]:
-        """
-        Verifica si el usuario puede enviar mensajes
-        
-        Returns:
-            (puede_procesar, mensaje_error)
-        """
-        with self.lock:
-            ahora = time.time()
-            ahora_str = datetime.fromtimestamp(ahora).strftime("%Y-%m-%d %H:%M:%S")
-            logger.debug("RateLimiter check for user_id=%s at %s", user_id, ahora_str)
-            
-            # Verificar si está bloqueado por spam
-            if user_id in self.bloqueados:
-                tiempo_bloqueado = self.bloqueados[user_id]
-                if ahora - tiempo_bloqueado < self.cooldown_segundos:
-                    tiempo_restante = int((self.cooldown_segundos - (ahora - tiempo_bloqueado)) / 60)
-                    msg = f"⚠️ Has enviado muchos mensajes seguidos. Podrás escribir nuevamente en {tiempo_restante} minutos."
-                    logger.info("RateLimiter: user_id=%s blocked, remaining_minutes=%s", user_id, tiempo_restante)
-                    return False, msg
-                else:
-                    # Desbloquear usuario
-                    del self.bloqueados[user_id]
-            
-            # Limpiar mensajes antiguos
-            self.usuarios[user_id] = [
-                t for t in self.usuarios[user_id]
-                if ahora - t < self.ventana_segundos
-            ]
-            
-            # Verificar límite
-            logger.debug("RateLimiter: user_id=%s has %s messages in window max_messages=%s", user_id, len(self.usuarios[user_id]), self.max_mensajes)
-            if len(self.usuarios[user_id]) >= self.max_mensajes:
-                self.bloqueados[user_id] = ahora
-                msg = f"⚠️ Por favor espera {self.cooldown_segundos // 60} minutos."
-                logger.info("RateLimiter: user_id=%s reached limit=%s", user_id, self.max_mensajes)
-                return False, msg
-            
-            # Registrar mensaje
-            self.usuarios[user_id].append(ahora)
-            logger.debug("RateLimiter: user_id=%s message registered at %s", user_id, ahora_str)
-            return True, ""
-
-# Instancia global
-rate_limiter = RateLimiter(max_mensajes=RATE_LIMITER_MAX_MENSAJES, ventana_minutos=RATE_LIMITER_WINDOWS_MINUTES, cooldown_minutos=RATE_LIMITER_COOLDOWN_MINUTES)
-
-
-# ==========================================
-# 2. CACHÉ DE RESPUESTAS (Ahorro de costos API)
-# ==========================================
-
-import hashlib
-import json
-from functools import lru_cache
-
-class CacheRespuestas:
-    """Cachea respuestas a preguntas frecuentes"""
-    
-    def __init__(self, ttl_segundos=3600):  # 1 hora
-        self.cache = {}
-        self.ttl = ttl_segundos
-        self.lock = Lock()
-    
-    def _generar_key(self, mensaje: str) -> str:
-        """Genera key hash del mensaje normalizado"""
-        # Normalizar mensaje (minúsculas, sin espacios extra)
-        normalizado = ' '.join(mensaje.lower().split())
-        return hashlib.md5(normalizado.encode()).hexdigest()
-    
-    def obtener(self, mensaje: str) -> Optional[str]:
-        """Obtiene respuesta cacheada si existe y es válida"""
-        with self.lock:
-            key = self._generar_key(mensaje)
-            
-            if key in self.cache:
-                respuesta, timestamp = self.cache[key]
-                # Verificar si no expiró
-                if time.time() - timestamp < self.ttl:
-                    logger.debug("Cache hit for key=%s mensaje_snippet=%s", key, mensaje[:50])
-                    return respuesta
-                else:
-                    # Eliminar entrada expirada
-                    logger.debug("Cache expired for key=%s", key)
-                    del self.cache[key]
-            
-            return None
-    
-    def guardar(self, mensaje: str, respuesta: str):
-        """Guarda respuesta en cache"""
-        logger.debug("Cache guardar llamada para mensaje_snippet=%s", mensaje[:50])
-        with self.lock:
-            key = self._generar_key(mensaje)
-            self.cache[key] = (respuesta, time.time())
-            logger.debug("Cache guardar key=%s mensaje_snippet=%s", key, mensaje[:50])
-            # Limpiar cache si es muy grande (max 1000 entradas)
-            if len(self.cache) > 1000:
-                self._limpiar_viejos()
-    
-    def _limpiar_viejos(self):
-        """Elimina entradas más antiguas"""
-        ahora = time.time()
-        self.cache = {
-            k: v for k, v in self.cache.items()
-            if ahora - v[1] < self.ttl
-        }
-
-# Instancia global
-cache_respuestas = CacheRespuestas(ttl_segundos=3600)
-
-
-# ==========================================
-# 3. DETECCIÓN DE INTENCIÓN RÁPIDA (Sin LLM)
-# ==========================================
-
-import re
-
-class DetectorIntenciones:
-    """Detecta intenciones comunes sin llamar al LLM"""
-    
-    PATRONES = {
-        'saludo': [
-            r'\b(hola|buenas|buenos dias|buen dia|buenas tardes|buenas noches)\b',
-            r'^(hola|hi|hey)$'
-        ],
-        'despedida': [
-            r'\b(chau|adios|hasta luego|nos vemos|gracias|bye)\b'
-        ],
-        'afirmacion': [
-            r'^(si|sí|dale|ok|okay|perfecto|genial|bueno|claro)$',
-            r'\b(me interesa|quiero|agend|si por favor)\b'
-        ],
-        'negacion': [
-            r'^(no|nop|nope|no gracias)$',
-            r'\b(no me interesa|no quiero|ahora no)\b'
-        ],
-        'consulta_precio': [
-            r'\b(cuanto|precio|costo|vale|cotiz|presupuesto)\b'
-        ],
-        'consulta_horario': [
-            r'\b(horario|disponibilidad|cuando|que dia|hora)\b'
-        ],
-        'frustracion': [
-            r'\b(enojado|frustrado|molesto|decepcionado|insatisfecho|no funciona|mal servicio|no entiendo|desastre)\b'
-        ]
-    }
-    
-    @classmethod
-    def detectar(cls, mensaje: str) -> Optional[str]:
-        """
-        Detecta intención del mensaje
-        
-        Returns:
-            intención detectada o None
-        """
-        mensaje_lower = mensaje.lower().strip()
-        
-        for intencion, patrones in cls.PATRONES.items():
-            for patron in patrones:
-                if re.search(patron, mensaje_lower):
-                    logger.debug("DetectorIntenciones: detected %s for mensaje=%s", intencion, mensaje_lower[:60])
-                    return intencion
-        
-        return None
-    
-    @classmethod
-    def respuesta_rapida(cls, intencion: str, nombre_usuario: str = "") -> Optional[str]:
-        """Genera respuesta rápida sin LLM"""
-        saludo = f"Hola {nombre_usuario}! 👋" if nombre_usuario else "Hola! 👋"
-        despedida = f"¡Hasta luego {nombre_usuario}! 👋" if nombre_usuario else "¡Hasta luego! 👋"
-
-        respuestas = {
-            'saludo': f"""{saludo}{SALUDO}""",
-            
-            'despedida': f"""{despedida}{DESPEDIDA}""",
-            
-            'consulta_precio': f"""{CONSULTA_PRECIOS}""",
-        }
-        
-        return respuestas.get(intencion)
-
-# Instancia
-detector_intenciones = DetectorIntenciones()
-
-
-# ==========================================
-# 4. SISTEMA DE MÉTRICAS Y MONITOREO
-# ==========================================
-
-from dataclasses import dataclass
-from typing import List
-import statistics
+def _get_connection_pool():
+    """Obtiene o crea el pool de conexiones (lazy initialization)"""
+    global connection_pool
+    if connection_pool is None:
+        try:
+            connection_pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=1,
+                maxconn=10,
+                **DB_CONFIG
+            )
+            logger.info("✅ Pool de conexiones PostgreSQL inicializado")
+        except Exception as e:
+            logger.error(f"❌ Error conectando a PostgreSQL: {e}")
+            raise
+    return connection_pool
 
 @dataclass
 class MetricaMensaje:
@@ -253,150 +50,554 @@ class MetricaMensaje:
     tokens_usados: int
     fue_cache: bool
     error: bool
+    mensaje_length: int = 0
+    intencion: Optional[str] = None
 
-class SistemaMetricas:
-    """Sistema completo de métricas para monitoreo"""
+class SistemaMetricasDB:
+    """Sistema de métricas con persistencia en PostgreSQL"""
     
     def __init__(self):
-        self.metricas: List[MetricaMensaje] = []
-        self.mensajes_procesados = 0
-        self.mensajes_en_proceso = 0
-        self.errores = 0
-        self.cache_hits = 0
-        self.cache_misses = 0
+        self.buffer: List[MetricaMensaje] = []
+        # Buffer size configurable via env var for testing/production
+        try:
+            self.buffer_size = int(os.getenv('METRICS_BUFFER_SIZE', '1'))  # default=1 for immediate inserts
+        except Exception:
+            self.buffer_size = 1
         self.lock = Lock()
-        self.usuarios_activos = set()
-        self.inicio_sistema = time.time()
+        self._crear_tablas()
     
-    def registrar_inicio(self, user_id: str):
-        """Registra inicio de procesamiento"""
-        with self.lock:
-            self.mensajes_en_proceso += 1
-            self.usuarios_activos.add(user_id)
-            logger.debug("Metricas: registrar_inicio user_id=%s en_proceso=%s", user_id, self.mensajes_en_proceso)
+    def _get_connection(self):
+        """Obtiene conexión del pool"""
+        pool = _get_connection_pool()
+        return pool.getconn()
     
-    def registrar_fin(self, user_id: str, tiempo: float, tokens: int = 0, 
-                     fue_cache: bool = False, error: bool = False):
-        """Registra fin de procesamiento"""
+    def _return_connection(self, conn):
+        """Devuelve conexión al pool"""
+        pool = _get_connection_pool()
+        pool.putconn(conn)
+    
+    def _crear_tablas(self):
+        """Crea tablas necesarias si no existen"""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            # Tabla principal de métricas
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS metricas_mensajes (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL,
+                    user_id VARCHAR(100) NOT NULL,
+                    tiempo_procesamiento REAL NOT NULL,
+                    tokens_usados INTEGER DEFAULT 0,
+                    fue_cache BOOLEAN DEFAULT FALSE,
+                    error BOOLEAN DEFAULT FALSE,
+                    mensaje_length INTEGER DEFAULT 0,
+                    intencion VARCHAR(50),
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_metricas_timestamp 
+                ON metricas_mensajes(timestamp);
+                
+                CREATE INDEX IF NOT EXISTS idx_metricas_user_id 
+                ON metricas_mensajes(user_id);
+                
+                CREATE INDEX IF NOT EXISTS idx_metricas_error 
+                ON metricas_mensajes(error);
+            """)
+            
+            # Tabla de métricas agregadas por hora
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS metricas_hora (
+                    id SERIAL PRIMARY KEY,
+                    hora TIMESTAMP NOT NULL,
+                    total_mensajes INTEGER DEFAULT 0,
+                    mensajes_exitosos INTEGER DEFAULT 0,
+                    mensajes_error INTEGER DEFAULT 0,
+                    mensajes_cache INTEGER DEFAULT 0,
+                    tiempo_promedio REAL DEFAULT 0,
+                    tokens_totales INTEGER DEFAULT 0,
+                    usuarios_unicos INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(hora)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_metricas_hora_hora 
+                ON metricas_hora(hora);
+            """)
+            
+            # Tabla de estadísticas por usuario
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS metricas_usuarios (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(100) NOT NULL,
+                    total_mensajes INTEGER DEFAULT 0,
+                    ultimo_mensaje TIMESTAMP,
+                    primer_mensaje TIMESTAMP,
+                    tiempo_promedio REAL DEFAULT 0,
+                    tasa_error REAL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_metricas_usuarios_user_id 
+                ON metricas_usuarios(user_id);
+            """)
+            
+            conn.commit()
+            cur.close()
+            logger.info("✅ Tablas de métricas creadas/verificadas")
+            
+        except Exception as e:
+            logger.error(f"❌ Error creando tablas: {e}")
+            conn.rollback()
+        finally:
+            self._return_connection(conn)
+    
+    def registrar_metrica(self, metrica: MetricaMensaje):
+        """Registra una métrica (con buffering)"""
         with self.lock:
-            self.mensajes_en_proceso -= 1
-            self.mensajes_procesados += 1
-            
-            if error:
-                self.errores += 1
-            
-            if fue_cache:
-                self.cache_hits += 1
-            else:
-                self.cache_misses += 1
-            
-            # Guardar métrica
-            metrica = MetricaMensaje(
-                timestamp=time.time(),
-                user_id=user_id,
-                tiempo_procesamiento=tiempo,
-                tokens_usados=tokens,
-                fue_cache=fue_cache,
-                error=error
-            )
-            self.metricas.append(metrica)
-            
-            # Mantener solo últimas 1000 métricas
-            if len(self.metricas) > 1000:
-                self.metricas = self.metricas[-1000:]
-            # Log con timestamp legible
+            self.buffer.append(metrica)
             try:
-                ts = datetime.fromtimestamp(metrica.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+                logger.debug(f"🔸 Buffer metrics: {len(self.buffer)}/{self.buffer_size}")
             except Exception:
-                ts = str(metrica.timestamp)
-            logger.debug("Metricas: registrar_fin user_id=%s ts=%s tiempo=%s tokens=%s fue_cache=%s error=%s", user_id, ts, tiempo, tokens, fue_cache, error)
-    
-    def obtener_estadisticas(self) -> dict:
-        """Obtiene estadísticas completas"""
-        with self.lock:
-            if not self.metricas:
-                return {"status": "Sin datos"}
+                pass
             
-            tiempos = [m.tiempo_procesamiento for m in self.metricas if not m.error]
-            tiempo_uptime = time.time() - self.inicio_sistema
+            # Si buffer está lleno, guardar en DB
+            if len(self.buffer) >= self.buffer_size:
+                self._flush_buffer()
+    
+    def _flush_buffer(self):
+        """Guarda buffer en base de datos"""
+        if not self.buffer:
+            return
+        
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            # Preparar datos para batch insert
+            datos = []
+            for m in self.buffer:
+                datos.append((
+                    datetime.fromtimestamp(m.timestamp),
+                    m.user_id,
+                    m.tiempo_procesamiento,
+                    m.tokens_usados,
+                    m.fue_cache,
+                    m.error,
+                    m.mensaje_length,
+                    m.intencion
+                ))
+            
+            # Batch insert (mucho más rápido)
+            execute_batch(cur, """
+                INSERT INTO metricas_mensajes 
+                (timestamp, user_id, tiempo_procesamiento, tokens_usados, 
+                 fue_cache, error, mensaje_length, intencion)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, datos)
+            
+            conn.commit()
+            cur.close()
+            
+            # Actualizar métricas agregadas
+            self._actualizar_metricas_agregadas()
+            
+            # Limpiar buffer
+            self.buffer.clear()
+            
+            logger.info(f"💾 Guardadas {len(datos)} métricas en DB")
+            return len(datos)
+            
+        except Exception as e:
+            logger.error(f"❌ Error guardando métricas: {e}")
+            conn.rollback()
+        finally:
+            self._return_connection(conn)
+
+    def forzar_flush(self):
+        """Forzar el vaciado del buffer de métricas y retornar cuántas métricas se insertaron."""
+        with self.lock:
+            cantidad = len(self.buffer)
+            try:
+                inserted = self._flush_buffer() or 0
+                return {"buffer_before": cantidad, "inserted": inserted}
+            except Exception as e:
+                print(f"❌ Error forzando flush: {e}")
+                return {"error": str(e)}
+    
+    def _actualizar_metricas_agregadas(self):
+        """Actualiza tablas de métricas agregadas"""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            # Actualizar métricas por hora (última hora)
+            cur.execute("""
+                INSERT INTO metricas_hora (
+                    hora, total_mensajes, mensajes_exitosos, mensajes_error,
+                    mensajes_cache, tiempo_promedio, tokens_totales, usuarios_unicos
+                )
+                SELECT 
+                    DATE_TRUNC('hour', timestamp) as hora,
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE NOT error) as exitosos,
+                    COUNT(*) FILTER (WHERE error) as errores,
+                    COUNT(*) FILTER (WHERE fue_cache) as cache,
+                    AVG(tiempo_procesamiento) as tiempo_prom,
+                    SUM(tokens_usados) as tokens_tot,
+                    COUNT(DISTINCT user_id) as usuarios
+                FROM metricas_mensajes
+                WHERE timestamp >= NOW() - INTERVAL '1 hour'
+                GROUP BY DATE_TRUNC('hour', timestamp)
+                ON CONFLICT (hora) DO UPDATE SET
+                    total_mensajes = EXCLUDED.total_mensajes,
+                    mensajes_exitosos = EXCLUDED.mensajes_exitosos,
+                    mensajes_error = EXCLUDED.mensajes_error,
+                    mensajes_cache = EXCLUDED.mensajes_cache,
+                    tiempo_promedio = EXCLUDED.tiempo_promedio,
+                    tokens_totales = EXCLUDED.tokens_totales,
+                    usuarios_unicos = EXCLUDED.usuarios_unicos;
+            """)
+            
+            # Actualizar estadísticas por usuario
+            cur.execute("""
+                INSERT INTO metricas_usuarios (
+                    user_id, total_mensajes, ultimo_mensaje, primer_mensaje,
+                    tiempo_promedio, tasa_error
+                )
+                SELECT 
+                    user_id,
+                    COUNT(*) as total,
+                    MAX(timestamp) as ultimo,
+                    MIN(timestamp) as primero,
+                    AVG(tiempo_procesamiento) as tiempo_prom,
+                    (COUNT(*) FILTER (WHERE error)::FLOAT / COUNT(*)) * 100 as tasa_err
+                FROM metricas_mensajes
+                WHERE timestamp >= NOW() - INTERVAL '24 hours'
+                GROUP BY user_id
+                ON CONFLICT (user_id) DO UPDATE SET
+                    total_mensajes = EXCLUDED.total_mensajes,
+                    ultimo_mensaje = EXCLUDED.ultimo_mensaje,
+                    tiempo_promedio = EXCLUDED.tiempo_promedio,
+                    tasa_error = EXCLUDED.tasa_error,
+                    updated_at = NOW();
+            """)
+            
+            conn.commit()
+            cur.close()
+            
+        except Exception as e:
+            logger.error(f"❌ Error actualizando agregados: {e}")
+            conn.rollback()
+        finally:
+            self._return_connection(conn)
+    
+    def obtener_estadisticas_generales(self, horas: int = 24) -> Dict:
+        """Obtiene estadísticas generales del sistema"""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            # Estadísticas últimas N horas
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_mensajes,
+                    COUNT(*) FILTER (WHERE NOT error) as exitosos,
+                    COUNT(*) FILTER (WHERE error) as errores,
+                    COUNT(*) FILTER (WHERE fue_cache) as cache,
+                    AVG(tiempo_procesamiento) as tiempo_promedio,
+                    MIN(tiempo_procesamiento) as tiempo_min,
+                    MAX(tiempo_procesamiento) as tiempo_max,
+                    SUM(tokens_usados) as tokens_totales,
+                    COUNT(DISTINCT user_id) as usuarios_unicos
+                FROM metricas_mensajes
+                WHERE timestamp >= NOW() - INTERVAL '%s hours'
+            """, (horas,))
+            
+            resultado = cur.fetchone()
+            cur.close()
+            
+            if not resultado or resultado[0] == 0:
+                return {"error": "Sin datos en el período especificado"}
+            
+            total = resultado[0]
+            exitosos = resultado[1] or 0
+            errores = resultado[2] or 0
+            cache = resultado[3] or 0
             
             return {
-                "sistema": {
-                    "uptime_horas": round(tiempo_uptime / 3600, 2),
-                    "mensajes_procesados": self.mensajes_procesados,
-                    "mensajes_en_proceso": self.mensajes_en_proceso,
-                    "usuarios_unicos": len(self.usuarios_activos),
-                },
-                "rendimiento": {
-                    "tiempo_promedio_segundos": round(statistics.mean(tiempos), 2) if tiempos else 0,
-                    "tiempo_minimo": round(min(tiempos), 2) if tiempos else 0,
-                    "tiempo_maximo": round(max(tiempos), 2) if tiempos else 0,
-                    "mensajes_por_minuto": round(self.mensajes_procesados / (tiempo_uptime / 60), 2),
-                },
-                "cache": {
-                    "hits": self.cache_hits,
-                    "misses": self.cache_misses,
-                    "tasa_acierto_porcentaje": round(
-                        (self.cache_hits / (self.cache_hits + self.cache_misses) * 100), 2
-                    ) if (self.cache_hits + self.cache_misses) > 0 else 0
-                },
-                "errores": {
-                    "total": self.errores,
-                    "tasa_error_porcentaje": round(
-                        (self.errores / self.mensajes_procesados * 100), 2
-                    ) if self.mensajes_procesados > 0 else 0
-                }
+                "periodo_horas": horas,
+                "total_mensajes": total,
+                "mensajes_exitosos": exitosos,
+                "mensajes_error": errores,
+                "mensajes_cache": cache,
+                "tasa_exito_porcentaje": round((exitosos / total) * 100, 2) if total > 0 else 0,
+                "tasa_error_porcentaje": round((errores / total) * 100, 2) if total > 0 else 0,
+                "tasa_cache_porcentaje": round((cache / total) * 100, 2) if total > 0 else 0,
+                "tiempo_promedio_segundos": round(resultado[4] or 0, 2),
+                "tiempo_minimo_segundos": round(resultado[5] or 0, 2),
+                "tiempo_maximo_segundos": round(resultado[6] or 0, 2),
+                "tokens_totales": resultado[7] or 0,
+                "usuarios_unicos": resultado[8] or 0,
+                "mensajes_por_usuario": round(total / (resultado[8] or 1), 2)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo estadísticas: {e}")
+            return {"error": str(e)}
+        finally:
+            self._return_connection(conn)
+    
+    def obtener_metricas_por_hora(self, ultimas_horas: int = 24) -> List[Dict]:
+        """Obtiene métricas agregadas por hora"""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT 
+                    hora,
+                    total_mensajes,
+                    mensajes_exitosos,
+                    mensajes_error,
+                    mensajes_cache,
+                    tiempo_promedio,
+                    tokens_totales,
+                    usuarios_unicos
+                FROM metricas_hora
+                WHERE hora >= NOW() - INTERVAL '%s hours'
+                ORDER BY hora DESC
+            """, (ultimas_horas,))
+            
+            resultados = []
+            for row in cur.fetchall():
+                resultados.append({
+                    "hora": row[0].isoformat(),
+                    "total_mensajes": row[1],
+                    "exitosos": row[2],
+                    "errores": row[3],
+                    "cache": row[4],
+                    "tiempo_promedio": round(row[5], 2),
+                    "tokens": row[6],
+                    "usuarios": row[7]
+                })
+            
+            cur.close()
+            return resultados
+            
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo métricas por hora: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+
+    def obtener_metricas_por_hora_rango(self, start_iso: str, end_iso: str) -> List[Dict]:
+        """Obtiene métricas agregadas por hora en un rango de fechas (ISO strings)."""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+
+            cur.execute("""
+                SELECT 
+                    hora,
+                    total_mensajes,
+                    mensajes_exitosos,
+                    mensajes_error,
+                    mensajes_cache,
+                    tiempo_promedio,
+                    tokens_totales,
+                    usuarios_unicos
+                FROM metricas_hora
+                WHERE hora >= %s AND hora <= %s
+                ORDER BY hora DESC
+            """, (start_iso, end_iso))
+
+            resultados = []
+            for row in cur.fetchall():
+                resultados.append({
+                    "hora": row[0].isoformat(),
+                    "total_mensajes": row[1],
+                    "exitosos": row[2],
+                    "errores": row[3],
+                    "cache": row[4],
+                    "tiempo_promedio": round(row[5], 2) if row[5] is not None else 0,
+                    "tokens": row[6],
+                    "usuarios": row[7]
+                })
+
+            cur.close()
+            return resultados
+
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo métricas por hora (rango): {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+
+    def obtener_estadisticas_por_rango(self, start_iso: str, end_iso: str) -> Dict:
+        """Obtiene estadísticas generales entre dos timestamps ISO."""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_mensajes,
+                    COUNT(*) FILTER (WHERE NOT error) as exitosos,
+                    COUNT(*) FILTER (WHERE error) as errores,
+                    COUNT(*) FILTER (WHERE fue_cache) as cache,
+                    AVG(tiempo_procesamiento) as tiempo_promedio,
+                    MIN(tiempo_procesamiento) as tiempo_min,
+                    MAX(tiempo_procesamiento) as tiempo_max,
+                    SUM(tokens_usados) as tokens_totales,
+                    COUNT(DISTINCT user_id) as usuarios_unicos
+                FROM metricas_mensajes
+                WHERE timestamp >= %s AND timestamp <= %s
+            """, (start_iso, end_iso))
+
+            resultado = cur.fetchone()
+            cur.close()
+
+            if not resultado or resultado[0] == 0:
+                return {"error": "Sin datos en el período especificado"}
+
+            total = resultado[0]
+            exitosos = resultado[1] or 0
+            errores = resultado[2] or 0
+            cache = resultado[3] or 0
+
+            return {
+                "periodo_start": start_iso,
+                "periodo_end": end_iso,
+                "total_mensajes": total,
+                "mensajes_exitosos": exitosos,
+                "mensajes_error": errores,
+                "mensajes_cache": cache,
+                "tasa_exito_porcentaje": round((exitosos / total) * 100, 2) if total > 0 else 0,
+                "tasa_error_porcentaje": round((errores / total) * 100, 2) if total > 0 else 0,
+                "tasa_cache_porcentaje": round((cache / total) * 100, 2) if total > 0 else 0,
+                "tiempo_promedio_segundos": round(resultado[4] or 0, 2),
+                "tiempo_minimo_segundos": round(resultado[5] or 0, 2),
+                "tiempo_maximo_segundos": round(resultado[6] or 0, 2),
+                "tokens_totales": resultado[7] or 0,
+                "usuarios_unicos": resultado[8] or 0,
+                "mensajes_por_usuario": round(total / (resultado[8] or 1), 2)
             }
 
-# Instancia global
-metricas = SistemaMetricas()
-
-
-# ==========================================
-# 5. TIMEOUT PROTECTION (Prevenir bloqueos) SIN USO
-# ==========================================
-
-from threading import Timer
-import signal
-
-class TimeoutError(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutError("Operación excedió tiempo límite")
-
-def ejecutar_con_timeout(func, args=(), kwargs={}, timeout_segundos=30):
-    """
-    Ejecuta función con timeout
-    
-    Args:
-        func: Función a ejecutar
-        args: Argumentos posicionales
-        kwargs: Argumentos con nombre
-        timeout_segundos: Tiempo máximo de ejecución
-    
-    Returns:
-        Resultado de la función o None si timeout
-    """
-    resultado = [None]
-    excepcion = [None]
-    
-    def target():
-        try:
-            resultado[0] = func(*args, **kwargs)
         except Exception as e:
-            excepcion[0] = e
+            logger.error(f"❌ Error obteniendo estadísticas por rango: {e}")
+            return {"error": str(e)}
+        finally:
+            self._return_connection(conn)
     
-    thread = threading.Thread(target=target)
-    thread.daemon = True
-    thread.start()
-    thread.join(timeout_segundos)
+    def obtener_top_usuarios(self, limit: int = 10) -> List[Dict]:
+        """Obtiene usuarios más activos"""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT 
+                    user_id,
+                    total_mensajes,
+                    ultimo_mensaje,
+                    tiempo_promedio,
+                    tasa_error
+                FROM metricas_usuarios
+                ORDER BY total_mensajes DESC
+                LIMIT %s
+            """, (limit,))
+            
+            resultados = []
+            for row in cur.fetchall():
+                resultados.append({
+                    "user_id": row[0],
+                    "total_mensajes": row[1],
+                    "ultimo_mensaje": row[2].isoformat() if row[2] else None,
+                    "tiempo_promedio": round(row[3], 2),
+                    "tasa_error": round(row[4], 2)
+                })
+            
+            cur.close()
+            return resultados
+            
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo top usuarios: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
     
-    if thread.is_alive():
-        print(f"⏰ Timeout: Operación excedió {timeout_segundos} segundos")
-        return None
+    def limpiar_datos_antiguos(self, dias: int = 30):
+        """Elimina métricas detalladas antiguas (mantiene agregados)"""
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                DELETE FROM metricas_mensajes
+                WHERE timestamp < NOW() - INTERVAL '%s days'
+            """, (dias,))
+            
+            eliminados = cur.rowcount
+            conn.commit()
+            cur.close()
+            
+            logger.info(f"🧹 Eliminadas {eliminados} métricas antiguas (>{dias} días)")
+            return eliminados
+            
+        except Exception as e:
+            logger.error(f"❌ Error limpiando datos: {e}")
+            conn.rollback()
+            return 0
+        finally:
+            self._return_connection(conn)
+
+    def borrar_todas_metricas(self):
+        """Borra todas las tablas de métricas y reinicia los contadores.
+
+        Devuelve un dict con los conteos eliminados por tabla antes del borrado.
+        """
+        conn = self._get_connection()
+        try:
+            cur = conn.cursor()
+
+            # Contar filas actuales para reporte
+            cur.execute("SELECT COUNT(*) FROM metricas_mensajes")
+            c_mensajes = cur.fetchone()[0] or 0
+            cur.execute("SELECT COUNT(*) FROM metricas_hora")
+            c_hora = cur.fetchone()[0] or 0
+            cur.execute("SELECT COUNT(*) FROM metricas_usuarios")
+            c_usuarios = cur.fetchone()[0] or 0
+
+            # Truncar las tablas y reiniciar identities
+            cur.execute("TRUNCATE metricas_mensajes, metricas_hora, metricas_usuarios RESTART IDENTITY CASCADE;")
+            conn.commit()
+            cur.close()
+
+            logger.info(f"🧹 Truncadas tablas de métricas: mensajes={c_mensajes}, hora={c_hora}, usuarios={c_usuarios}")
+            return {
+                "metricas_mensajes": c_mensajes,
+                "metricas_hora": c_hora,
+                "metricas_usuarios": c_usuarios,
+                "total": int(c_mensajes + c_hora + c_usuarios)
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Error borrando todas las métricas: {e}")
+            conn.rollback()
+            return {"error": str(e)}
+        finally:
+            self._return_connection(conn)
     
-    if excepcion[0]:
-        raise excepcion[0]
-    
-    return resultado[0]
+    def __del__(self):
+        """Asegura que el buffer se guarde al destruir el objeto"""
+        self._flush_buffer()
+
+# Instancia global
+metricas_db = SistemaMetricasDB()
+
+# Alias para compatibilidad
+MetricsDB = SistemaMetricasDB

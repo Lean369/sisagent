@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load test: send concurrent POSTs to /webhook and report results."""
+"""Load unit test: send concurrent POSTs to /webhook and report results."""
 import sys
 import time
 import requests

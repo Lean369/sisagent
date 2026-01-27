@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2d3748" />
+    </marker>
+    <style>
+      .box { fill:#ffffff; stroke:#2b6cb0; stroke-width:2; rx:6; }
+      .title { font: bold 14px sans-serif; fill:#1a202c; }
+      .label { font: 12px sans-serif; fill:#2d3748; }
+      .note { font: 11px sans-serif; fill:#4a5568; }
+      .arrow { stroke:#2d3748; stroke-width:2; fill:none; marker-end:url(#arrow); }
+    </style>
+  </defs>
+
+  <!-- Top -->
+  <rect class="box" x="440" y="20" width="320" height="56" />
+  <text class="title" x="600" y="52" text-anchor="middle">Webhook (POST)</text>
+  <text class="label" x="600" y="70" text-anchor="middle">Evolution API</text>
+
+  <!-- Validation -->
+  <rect class="box" x="440" y="110" width="320" height="64" />
+  <text class="title" x="600" y="142" text-anchor="middle">Validation</text>
+  <text class="label" x="600" y="160" text-anchor="middle">fromMe, DDoS, Rate limiter</text>
+  <line class="arrow" x1="600" y1="76" x2="600" y2="110" />
+
+  <!-- Memory -->
+  <rect class="box" x="440" y="210" width="320" height="56" />
+  <text class="title" x="600" y="242" text-anchor="middle">Get Memory</text>
+  <text class="label" x="600" y="260" text-anchor="middle">user context (RAM)</text>
+  <line class="arrow" x1="600" y1="174" x2="600" y2="210" />
+
+  <!-- Intent Detector -->
+  <rect class="box" x="440" y="300" width="320" height="56" />
+  <text class="title" x="600" y="332" text-anchor="middle">Intent Detector</text>
+  <text class="label" x="600" y="350" text-anchor="middle">booking / faq / other</text>
+  <line class="arrow" x1="600" y1="270" x2="600" y2="300" />
+
+  <!-- Branches: FAQ, Booking, Other -->
+  <rect class="box" x="160" y="400" width="200" height="56" />
+  <text class="title" x="260" y="432" text-anchor="middle">FAQ Cache</text>
+  <text class="label" x="260" y="450" text-anchor="middle">lookup (TTL)</text>
+
+  <rect class="box" x="460" y="400" width="280" height="56" />
+  <text class="title" x="600" y="432" text-anchor="middle">Build Prompt</text>
+  <text class="label" x="600" y="450" text-anchor="middle">system + history + message</text>
+
+  <rect class="box" x="820" y="400" width="200" height="56" />
+  <text class="title" x="920" y="432" text-anchor="middle">Other Intent</text>
+  <text class="label" x="920" y="450" text-anchor="middle">custom handlers</text>
+
+  <!-- Connect intent detector to branches -->
+  <line class="arrow" x1="600" y1="356" x2="260" y2="400" />
+  <line class="arrow" x1="600" y1="356" x2="600" y2="400" />
+  <line class="arrow" x1="600" y1="356" x2="920" y2="400" />
+
+  <!-- FAQ cache hit/miss -->
+  <rect class="box" x="40" y="500" width="280" height="56" />
+  <text class="title" x="180" y="532" text-anchor="middle">Cache Hit</text>
+  <text class="label" x="180" y="550" text-anchor="middle">Return cached reply (tokens=0)</text>
+
+  <rect class="box" x="360" y="500" width="320" height="56" />
+  <text class="title" x="520" y="532" text-anchor="middle">Invoke LLM</text>
+  <text class="label" x="520" y="550" text-anchor="middle">with fallback; measure tokens/time</text>
+
+  <line class="arrow" x1="260" y1="456" x2="180" y2="500" />
+  <line class="arrow" x1="260" y1="456" x2="520" y2="500" />
+
+  <!-- LLM Post-process -->
+  <rect class="box" x="360" y="600" width="320" height="56" />
+  <text class="title" x="520" y="632" text-anchor="middle">Post-process</text>
+  <text class="label" x="520" y="650" text-anchor="middle">detect actions (booking, CRM)</text>
+  <line class="arrow" x1="520" y1="556" x2="520" y2="600" />
+
+  <!-- Actions and send -->
+  <rect class="box" x="360" y="700" width="320" height="56" />
+  <text class="title" x="520" y="732" text-anchor="middle">Send Response</text>
+  <text class="label" x="520" y="750" text-anchor="middle">Evolution API (send fallbacks)</text>
+  <line class="arrow" x1="520" y1="656" x2="520" y2="700" />
+
+  <!-- Save and metrics -->
+  <rect class="box" x="360" y="800" width="320" height="56" />
+  <text class="title" x="520" y="832" text-anchor="middle">Save to Memory</text>
+  <text class="label" x="520" y="850" text-anchor="middle">add_user/add_ai + truncate</text>
+
+  <rect class="box" x="740" y="800" width="320" height="56" />
+  <text class="title" x="900" y="832" text-anchor="middle">Register Metrics</text>
+  <text class="label" x="900" y="850" text-anchor="middle">tokens, tiempo, error, intent</text>
+  <line class="arrow" x1="680" y1="756" x2="740" y2="800" />
+  <line class="arrow" x1="520" y1="760" x2="740" y2="800" />
+
+  <rect class="box" x="360" y="880" width="320" height="56" />
+  <text class="title" x="520" y="912" text-anchor="middle">Metrics Buffer → PostgreSQL</text>
+  <text class="label" x="520" y="930" text-anchor="middle">flush by size / admin force</text>
+  <line class="arrow" x1="520" y1="856" x2="520" y2="880" />
+
+  <!-- Footer -->
+  <text class="note" x="30" y="965">Updated diagram: processing_flow.svg</text>
+</svg>

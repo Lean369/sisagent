@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configurar logger
-logger = logging.getLogger("booking_tools")
+logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
 
 # Variables de configuración
 GOOGLE_BOOKING_URL = os.getenv('GOOGLE_BOOKING_URL', '')
@@ -33,34 +33,30 @@ GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'false').lower() == '
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')
 GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
 
+try:
+    from external_instructions import BOOKING_MESSAGE
+    if  not BOOKING_MESSAGE:
+        raise ValueError("Faltan BOOKING_MESSAGE en external_instructions.py")
+except Exception as e:
+    logger.error(f"❌ Error importando external_instructions: {type(e).__name__}: {e}")
+    import traceback
+    traceback.print_exc()
+    # Definiciones por defecto si falla la importación
+    BOOKING_MESSAGE = f"""
+    📅 *Agenda tu cita aquí* 
+    
+    Para reservar tu cita, haz clic en el siguiente enlace:
+    {GOOGLE_BOOKING_URL}
+    """
+
 # Storage para información de leads
 user_lead_info = {}
 
 
 def enviar_link_reserva(motivo: str = "") -> str:
-    """
-    Envía el link de la página de reservas de Google Calendar
-    
-    Args:
-        motivo: Motivo de la cita (opcional, solo para contexto)
-    
-    Returns:
-        Mensaje con el link de reserva
-    """
     logger.info(f"[BOOKING] Generando link de reserva - Motivo: {motivo or 'No especificado'}")
     
-    mensaje = f"""📅 *Agenda tu cita aquí*
-
-Para reservar tu cita, haz clic en el siguiente enlace:
-
-{GOOGLE_BOOKING_URL}
-
-✅ Podrás ver los horarios disponibles
-✅ Elegir la fecha y hora que prefieras
-✅ Confirmar y modificar tu cita al instante
-✅ Luego de confirmar recibirás un email con los detalles
-
-¿Necesitas ayuda con algo más?\n\nSisnova - Atención 24/7"""
+    mensaje = BOOKING_MESSAGE
     
     logger.info(f"[BOOKING] Link de reserva generado exitosamente")
     return mensaje
@@ -666,19 +662,36 @@ def registrar_lead_en_sheets(
         logger.info(f"[SHEETS] Registrando lead - Nombre: {nombre}, Tel: {telefono}")
         
         # Agregar fila al final de la hoja
-        sheets_service.spreadsheets().values().append(
+        # Verificar metadata del spreadsheet (ayuda a detectar permisos y sheets existentes)
+        try:
+            meta = sheets_service.spreadsheets().get(spreadsheetId=GOOGLE_SHEET_ID).execute()
+            sheet_titles = [s.get('properties', {}).get('title') for s in meta.get('sheets', [])]
+            logger.debug(f"[SHEETS] Spreadsheet access OK. Sheets: {sheet_titles}")
+            if 'Leads' not in sheet_titles:
+                logger.warning("[SHEETS] Hoja 'Leads' no encontrada en el spreadsheet. Verifique el nombre o créela manualmente.")
+        except Exception as e:
+            logger.warning(f"[SHEETS] No fue posible obtener metadata del spreadsheet: {e}")
+
+        # Agregar fila al final de la hoja y capturar respuesta
+        append_result = sheets_service.spreadsheets().values().append(
             spreadsheetId=GOOGLE_SHEET_ID,
             range='Leads!A:J',
             valueInputOption='USER_ENTERED',
             insertDataOption='INSERT_ROWS',
             body={'values': valores}
         ).execute()
-        
-        logger.info(f"[SHEETS] ✅ Lead registrado exitosamente en Google Sheets")
-        return {
-            "success": True,
-            "message": "✅ Lead registrado en Google Sheets"
-        }
+
+        logger.debug(f"[SHEETS] append result: {append_result}")
+
+        # Verificar si la API reportó actualizaciones
+        updates = append_result.get('updates') or {}
+        updated_rows = updates.get('updatedRows', 0)
+        if updated_rows > 0:
+            logger.info(f"[SHEETS] ✅ Lead registrado exitosamente - updatedRows={updated_rows}")
+            return {"success": True, "message": "✅ Lead registrado en Google Sheets", "details": append_result}
+        else:
+            logger.warning(f"[SHEETS] Append completado pero no se detectaron filas actualizadas: {append_result}")
+            return {"success": False, "message": "No se registró ninguna fila. Verifique permisos y existencia de la hoja 'Leads'.", "details": append_result}
         
     except Exception as e:
         logger.exception(f"[SHEETS] Error registrando lead en Google Sheets: {e}")
@@ -707,7 +720,7 @@ def extract_lead_info(user_id: str, mensaje: str, client_name: str = ""):
         palabras_clave_negocio = [
             'tengo', 'vendo', 'trabajo', 'empresa', 'negocio', 'emprendimiento',
             'tienda', 'local', 'comercio', 'dedicamos', 'ofrecemos', 'vendemos',
-            'somos', 'ecommerce', 'e-commerce', 'retail', 'mayorista', 'minorista'
+            'somos', 'soy', 'ecommerce', 'e-commerce', 'retail', 'mayorista', 'minorista'
         ]
 
         # Si el mensaje contiene palabras relacionadas con negocio
@@ -733,7 +746,7 @@ def extract_lead_info(user_id: str, mensaje: str, client_name: str = ""):
                 'empresa': '',
                 'rubro': '',
                 'volumen_mensajes': '',
-                'email': 'example@example.com'
+                'email': telefono + '@example.com'
             }
 
         # Actualizar datos extraídos

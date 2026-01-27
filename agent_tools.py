@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Usar el logger principal configurado en agent.py
-logger = logging.getLogger('agent')
+logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
 
 # Variables de configuración
 GOOGLE_BOOKING_URL = os.getenv('GOOGLE_BOOKING_URL', '')

@@ -29,3 +29,7 @@ openai==1.10.0
 
 # Utilidades
 pydantic==2.5.3
+APScheduler==3.10.4
+
+# Base de datos
+psycopg2-binary==2.9.9

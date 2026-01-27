@@ -124,7 +124,57 @@ KRAYIN_USER_ID=1  # ID del usuario asignado
 KRAYIN_LEAD_SOURCE_ID=5  # ID de la fuente (ej: WhatsApp)
 KRAYIN_LEAD_TYPE_ID=1  # ID del tipo de lead
 CRM_AUTO_REGISTER=true  # true para activar registro automático al reservar
+
+# Webhook de Monitoreo (opcional)
+MONITORING_WEBHOOK_URL=https://monitoring.example.com/webhook  # URL para enviar métricas
+MONITORING_WEBHOOK_INTERVAL_MINUTES=60  # Intervalo de envío automático (default: 60 minutos)
 ```
+
+### Modo de Webhook: Pull vs Push
+
+El agente soporta dos modos de integración con sistemas de monitoreo:
+
+- `pull` (por defecto): el agente envía métricas periódicamente al `MONITORING_WEBHOOK_URL`.
+- `push`: el sistema de monitoreo realiza `POST` al agente en el endpoint `/monitoring/push` con las métricas.
+
+Para activar el modo `push`, establezca en su archivo `.env`:
+
+```ini
+MONITORING_WEBHOOK_MODE=push
+# (Opcional) token que el sistema de monitoreo debe enviar en el header X-MONITORING-TOKEN
+MONITORING_PUSH_TOKEN=un_token_secreto
+```
+
+Comportamiento en `push`:
+
+- El agente NO iniciará el scheduler automático que envía métricas al webhook externo.
+- El endpoint receptor es `POST /monitoring/push` y acepta JSON. Si se configura `MONITORING_PUSH_TOKEN`, el agente validará el header `X-MONITORING-TOKEN`.
+- Los payloads recibidos se almacenan en disco en `logs/monitoring_received/` con nombre `<timestamp>_<uuid>.json` para procesamiento posterior.
+
+Ejemplo de curl (modo push, con token):
+
+```bash
+curl -X POST http://YOUR_AGENT_IP:5000/monitoring/push \
+  -H "Content-Type: application/json" \
+  -H "X-MONITORING-TOKEN: un_token_secreto" \
+  -d '{
+    "timestamp": "2026-01-26T00:00:00Z",
+    "source": "monitoring",
+    "stats_general": {"messages": 123, "errors": 2},
+    "stats_hourly": [{"hour": "2026-01-25T23:00:00Z", "messages": 10}],
+    "top_users": [],
+    "periodo": "mes_2026-01"
+  }'
+```
+
+Respuesta esperada: `200 OK` con JSON indicando `accepted` y la ruta donde se almacenó el payload.
+
+Notas adicionales:
+
+- Si desea que el agente siga enviando métricas (modo `pull`) deje `MONITORING_WEBHOOK_MODE` vacío o en `pull` y configure `MONITORING_WEBHOOK_URL`.
+- Puede forzar manualmente el envío desde el agente (modo `pull`) con el endpoint administrativo: `POST /admin/metrics/webhook?mes_actual=true`.
+- En entornos productivos configure `MONITORING_PUSH_TOKEN` para proteger el endpoint `POST /monitoring/push`.
+
 
 ### Configuración de Webhook en Evolution API
 
@@ -447,23 +497,24 @@ GET http://localhost:5000/memory/5491131376731@s.whatsapp.net
 
 ### Webhook Receiver
 
-```http
-POST /webhook
-Content-Type: application/json
+Ejemplo con `curl` (simula un webhook entrante):
 
-{
-  "event": "messages.upsert",
-  "instance": "prueba-py-agent",
-  "data": {
-    "key": {
-      "remoteJid": "5491131376731@s.whatsapp.net",
-      "fromMe": false
-    },
-    "message": {
-      "conversation": "Hola, necesito ayuda"
+```bash
+curl -sS -X POST http://localhost:5000/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "messages.upsert",
+    "instance": "prueba-py-agent",
+    "data": {
+      "key": {
+        "remoteJid": "5491131376731@s.whatsapp.net",
+        "fromMe": false
+      },
+      "message": {
+        "conversation": "Hola, necesito ayuda"
+      }
     }
-  }
-}
+  }'
 ```
 
 **Comportamiento**:
@@ -476,16 +527,198 @@ Content-Type: application/json
 
 ### Health Check
 
-```http
-GET /health
+```bash
+curl -sS http://localhost:5000/health
 ```
 
-**Respuesta**: `{"status": "ok"}`
+**Respuesta**: {"status": "ok"}
+
+### Métricas (Metric Endpoints)
+
+Ejemplos de uso de los endpoints de métricas para diagnóstico y monitoreo.
+
+- Obtener estadísticas generales (últimas 24 horas por defecto):
+
+```bash
+curl -sS "http://localhost:5000/stats?horas=24"
+```
+
+Respuesta de ejemplo:
+
+```json
+{
+  "periodo_horas": 24,
+  "total_mensajes": 10,
+  "mensajes_exitosos": 10,
+  "mensajes_error": 0,
+  "mensajes_cache": 0,
+  "tasa_exito_porcentaje": 100.0,
+  "tiempo_promedio_segundos": 0.91,
+  "tokens_totales": 1182,
+  "usuarios_unicos": 10
+}
+```
+
+- Obtener métricas agregadas por hora:
+
+```bash
+curl -sS "http://localhost:5000/stats/hourly?horas=24"
+```
+
+Respuesta de ejemplo (array):
+
+```json
+[{
+  "hora": "2026-01-25T19:00:00",
+  "total_mensajes": 10,
+  "exitosos": 10,
+  "errores": 0,
+  "cache": 0,
+  "tiempo_promedio": 0.91,
+  "tokens": 1182,
+  "usuarios": 10
+}]
+```
+
+Consulta por rango de fechas (ISO):
+
+```bash
+# Ejemplo: obtener métricas horarias entre el 1 y 31 de enero de 2026
+curl -sS "http://localhost:5000/stats/hourly?start=2026-01-01T00:00:00&end=2026-01-31T23:59:59" | jq
+```
+
+Consulta general por rango (totales entre dos fechas):
+
+```bash
+# Estadísticas agregadas entre dos timestamps ISO
+curl -sS "http://localhost:5000/stats?start=2026-01-01T00:00:00&end=2026-01-31T23:59:59" | jq
+```
+
+Nota: Alternativamente puedes usar `?horas=` con el total de horas del mes (30 días = 720, 31 días = 744), pero `start`/`end` permite rangos exactos y timezone-aware ISO timestamps.
+
+- Obtener top usuarios más activos:
+
+```bash
+curl -sS "http://localhost:5000/stats/top-users?limit=10"
+```
+
+Respuesta de ejemplo (array):
+
+```json
+[{
+  "user_id": "5491000000004@s.whatsapp.net",
+  "total_mensajes": 1,
+  "ultimo_mensaje": "2026-01-25T19:23:39.451762",
+  "tiempo_promedio": 0.77,
+  "tasa_error": 0.0
+}]
+```
+
+- Limpieza de métricas antiguas (acción administrativa):
+
+```bash
+curl -sS -X POST -H "Content-Type: application/json" \
+  -d '{"dias":30}' http://localhost:5000/admin/cleanup
+```
+
+Respuesta de ejemplo:
+
+```json
+{"dias":30, "eliminados": 0}
+```
+- Limpieza completa de todas las métricas:
+```bash
+curl -sS -X POST -H "Content-Type: application/json" http://localhost:5000/admin/cleanup/all
+```
+
+Nota: `/admin/cleanup` debería estar protegido por autenticación en entornos de producción.
+
+- Forzar flush del buffer de métricas (acción administrativa):
+```bash
+curl -sS -X POST -H "Content-Type: application/json" http://localhost:5000/admin/metrics/flush
+```
+
+Respuesta de ejemplo:
+
+```json
+{"buffer_before": 3, "inserted": 3}
+```
+
+Nota: Este endpoint fuerza que el buffer de métricas en memoria se inserte inmediatamente en la base de datos. Es útil para pruebas (por ejemplo después de un `TRUNCATE`) o para vaciar el buffer antes de reinicios. Protege este endpoint en producción (sugerencia: validar `X-ADMIN-TOKEN` contra `ADMIN_TOKEN` en el `.env`).
+
+- Enviar métricas al webhook de monitoreo (acción administrativa):
+
+```bash
+# Disparar envío de métricas de las últimas 24 horas (por defecto)
+curl -sS -X POST http://localhost:5000/admin/metrics/webhook
+
+# Enviar métricas de las últimas 48 horas
+curl -sS -X POST "http://localhost:5000/admin/metrics/webhook?horas=48"
+```
+
+Respuesta de ejemplo (éxito):
+
+```json
+{
+  "success": true,
+  "status_code": 200,
+  "webhook_url": "https://monitoring.example.com/webhook",
+  "periodo_horas": 24
+}
+```
+
+Respuesta de ejemplo (error):
+
+```json
+{
+  "success": false,
+  "error": "Timeout (>10s)"
+}
+```
+
+**Configuración del webhook de monitoreo**:
+
+Configura la URL del webhook y el intervalo de envío automático en `.env`:
+
+```ini
+# Webhook para sistema de monitoreo externo
+MONITORING_WEBHOOK_URL=https://monitoring.example.com/webhook
+MONITORING_WEBHOOK_INTERVAL_MINUTES=60  # Envío automático cada 60 minutos (default)
+```
+
+**Envío automático periódico**:
+
+El agente envía automáticamente las métricas del mes en curso cada N minutos (configurable con `MONITORING_WEBHOOK_INTERVAL_MINUTES`). El scheduler se inicia automáticamente al arrancar el agente.
+
+**Envío manual con diferentes períodos**:
+
+```bash
+# Enviar métricas de las últimas 24 horas
+curl -X POST "http://localhost:5000/admin/metrics/webhook?horas=24"
+
+# Enviar métricas de todo el mes en curso (mismo comportamiento que el scheduler)
+curl -X POST "http://localhost:5000/admin/metrics/webhook?mes_actual=true"
+```
+
+El payload enviado al webhook incluye:
+
+```json
+{
+  "timestamp": "2026-01-26T12:00:00",
+  "source": "sisagent",
+  "stats_general": { /* estadísticas generales */ },
+  "stats_hourly": [ /* métricas por hora */ ],
+  "top_users": [ /* usuarios más activos */ ],
+  "periodo": "mes_2026-01"  // o "24h" según parámetros
+}
+```
+
+Nota: Protege este endpoint en producción. El webhook tiene timeout de 10 segundos.
 
 ### DDoS Protection Stats
 
-```http
-GET /ddos-stats
+```bash
+curl -sS http://localhost:5000/ddos-stats
 ```
 
 **Respuesta**:
@@ -517,48 +750,182 @@ GET /ddos-stats
 
 ### Memory Inspection
 
-```http
-GET /memory
-GET /memory/{user_id}
+```bash
+# Lista de usuarios en memoria
+curl -sS http://localhost:5000/memory
+
+# Detalle de memoria de un usuario (ejemplo de user_id)
+curl -sS "http://localhost:5000/memory/5491131376731@s.whatsapp.net"
 ```
 
 Ver sección "Monitoreo de Memoria" arriba.
 
 ## Flujo de Procesamiento de Mensajes
 
-```
+Resumen del flujo con `Intent_Detector`, `FAQ_Cache` y monitoreo (métricas):
+
 1. Webhook recibido desde Evolution API
-   ↓
-2. Validación (no procesar si fromMe=true)
-   ↓
-3. Extracción de datos (remitente, mensaje)
-   ↓
-4. get_memory(user_id)
-   ├─ Si existe: cargar conversación histórica
-   └─ Si no existe: crear nueva memoria vacía
-   ↓
-5. Construcción del prompt
-   ├─ System prompt con instrucciones
-   ├─ Mensajes históricos del usuario
-   └─ Nuevo mensaje del usuario
-   ↓
-6. Invocación del LLM
-   ↓
-7. Procesamiento de respuesta
-   ├─ Detectar acción (ej: agendar cita)
-   └─ Ejecutar acción si es necesario
-   ↓
+  - Validación inicial: `fromMe` y DDoS/rate limiter
+2. Extracción de datos (remitente, mensaje)
+3. `get_memory(user_id)` → cargar o crear memoria por usuario
+4. Intent Detection
+  - `intent = Intent_Detector.detect(mensaje)`
+  - Si `intent == 'faq'` → consultar `FAQ_Cache`
+    - Si `cache_hit`: devolver respuesta cacheada inmediatamente
+     - Registrar métrica: `registrar_metrica(..., fue_cache=True, error=False, tokens_usados=0)`
+     - Retornar respuesta cacheada
+5. Construcción del prompt (si no hubo cache hit)
+  - `system prompt` + mensajes históricos + nuevo mensaje
+6. Invocación del LLM (con fallback automático)
+  - Medir tiempo de procesamiento y extraer `tokens_usados`
+  - Si error en proveedor principal → intentar `LLM_PROVIDER_FALLBACK`
+7. Procesamiento de la respuesta del LLM
+  - Detectar acciones (ej: `reserva`) y ejecutar side-effects (enviar link, registrar en CRM)
 8. Envío de respuesta vía Evolution API
-   ├─ Fallback 1: instance name (prueba-py-agent)
-   ├─ Fallback 2: instance UUID
-   └─ Fallback 3: EVOLUTION_INSTANCE desde .env
-   ↓
-9. Guardado en memoria
-   ├─ memory.chat_memory.add_user_message(mensaje)
-   └─ memory.chat_memory.add_ai_message(respuesta)
-   ↓
-10. Retornar {"status": "success"}
+  - Usar candidatos de fallback (instance name, instance UUID, EVOLUTION_INSTANCE)
+9. Persistencia y métricas
+  - Guardar intercambio en memoria: `memory.chat_memory.add_user_message()` / `add_ai_message()`
+  - Truncar memoria si excede `MAX_MESSAGES`
+  - Registrar métrica de interacción:
+    - `registrar_metrica(user_id, mensaje, inicio, intencion=intent, fue_cache=False, tokens=tokens_usados, error=False)`
+  - El sistema usa buffer para métricas y `METRICS_BUFFER_SIZE` controla flush
+10. Responder al webhook
+  - Retornar `{"status": "success"}` o el error correspondiente
+
+Diagrama ASCII del flujo:
+
 ```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         FLUJO DE PROCESAMIENTO DE MENSAJES                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────────┐
+    │  Webhook (POST)  │
+    │ Evolution API    │
+    └────────┬─────────┘
+             │
+             ▼
+    ┌──────────────────┐
+    │  Validación DDoS │
+    │  Rate Limiter    │
+    │  fromMe check    │
+    └────────┬─────────┘
+             │
+             ▼
+    ┌──────────────────┐
+    │  Get Memory      │
+    │  (user context)  │
+    └────────┬─────────┘
+             │
+             ▼
+    ┌──────────────────┐
+    │ Intent Detector  │
+    │  (analizar msg)  │
+    └────────┬─────────┘
+             │
+             ├─────────────────────────────┬──────────────────────┐
+             │                             │                      │
+             ▼                             ▼                      ▼
+    ┌────────────────┐           ┌──────────────────┐   ┌──────────────────┐
+    │  intent='faq'  │           │ intent='booking' │   │ intent='other'   │
+    └────────┬───────┘           └────────┬─────────┘   └────────┬─────────┘
+             │                            │                      │
+             ▼                            │                      │
+    ┌────────────────┐                    │                      │
+    │  FAQ_Cache     │                    │                      │
+    │  lookup        │                    │                      │
+    └────────┬───────┘                    │                      │
+             │                            │                      │
+        ┌────┴─────┐                      │                      │
+        │          │                      │                      │
+     CACHE HIT  CACHE MISS                │                      │
+        │          │                      │                      │
+        ▼          └──────────────────────┴──────────────────────┘
+    ┌─────────────────┐                   │
+    │ Return cached   │                   │
+    │ response        │                   │
+    │ (tokens=0)      │                   ▼
+    └────────┬────────┘         ┌──────────────────┐
+             │                  │  Build Prompt    │
+             │                  │  system+history  │
+             │                  └────────┬─────────┘
+             │                           │
+             │                           ▼
+             │                  ┌──────────────────┐
+             │                  │  Invoke LLM      │
+             │                  │  (+ fallback)    │
+             │                  │  measure tokens  │
+             │                  └────────┬─────────┘
+             │                           │
+             │                           ▼
+             │                  ┌──────────────────┐
+             │                  │  Post-process    │
+             │                  │  (detect actions)│
+             │                  └────────┬─────────┘
+             │                           │
+             │                      ┌────┴────┐
+             │                      │         │
+             │               booking action   │
+             │                      │         │
+             │                      ▼         │
+             │               ┌──────────────┐ │
+             │               │ Send Link +  │ │
+             │               │ CRM Register │ │
+             │               └──────┬───────┘ │
+             │                      │         │
+             └──────────────────────┴─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │  Send Response   │
+                           │  via Evolution   │
+                           │  (fallbacks)     │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │ Save to Memory   │
+                           │ + Truncate       │
+                           │ (MAX_MESSAGES)   │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │ Register Metrics │
+                           │ (tokens, tiempo, │
+                           │  error, intent)  │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │  Metrics Buffer  │
+                           │  → PostgreSQL    │
+                           │  (flush by size) │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │  Return success  │
+                           │  {"status": "ok"}│
+                           └──────────────────┘
+
+Leyenda:
+  ┌─────┐
+  │ Box │  = Proceso o decisión
+  └─────┘
+     │     = Flujo secuencial
+     ▼
+  ───┬───  = Bifurcación (múltiples paths)
+- `Intent_Detector` se utiliza para enrutar rápidamente flujos (booking, faq, precios).
+- `FAQ_Cache` reduce llamadas al LLM para preguntas frecuentes y mejora latencia/costes.
+- Todas las respuestas cacheadas y fallos del LLM deben registrar métricas para monitoreo.
+- Protege endpoints administrativos (`/admin/*`) y controla `METRICS_BUFFER_SIZE` en producción (recomendado `10`).
+
+Diagrama gráfico (SVG):
+
+![Diagrama de procesamiento](docs/processing_flow.svg)
+
+[Abrir SVG en el navegador](docs/processing_flow.svg)
 
 ## Sistema de Reservas de Citas
 
@@ -958,35 +1325,35 @@ Sistema de protección multi-capa diseñado para prevenir ataques de denegación
                 ▼
 ┌─────────────────────────────────────────────┐
 │  Capa 1: Whitelist/Blacklist                │
-│  - Números del propietario siempre permitidos│
-│  - Números bloqueados rechazados             │
+│ - Números del propietario siempre permitidos│
+│ - Números bloqueados rechazados             │
 └───────────────┬─────────────────────────────┘
                 │ ✅ Permitido
                 ▼
 ┌─────────────────────────────────────────────┐
 │  Capa 2: Circuit Breaker                    │
-│  - Protección contra sobrecarga del sistema  │
-│  - Abre después de 10 fallos consecutivos    │
+│ - Protección contra sobrecarga del sistema  │
+│ - Abre después de 10 fallos consecutivos    │
 └───────────────┬─────────────────────────────┘
                 │ ✅ Sistema saludable
                 ▼
 ┌─────────────────────────────────────────────┐
 │  Capa 3: Rate Limiter Global                │
-│  - Límite de mensajes totales por minuto     │
-│  - Default: 100 mensajes/minuto              │
+│ - Límite de mensajes totales por minuto     │
+│ - Default: 100 mensajes/minuto              │
 └───────────────┬─────────────────────────────┘
                 │ ✅ Bajo límite
                 ▼
 ┌─────────────────────────────────────────────┐
 │  Capa 4: Detector de Números Nuevos         │
-│  - Rastrea números nunca vistos              │
-│  - Modo sospechoso: 10+ números nuevos/min   │
-│  - Bloquea números desconocidos por 5 min    │
+│ - Rastrea números nunca vistos              │
+│ - Modo sospechoso: 10+ números nuevos/min   │
+│ - Bloquea números desconocidos por 5 min    │
 └───────────────┬─────────────────────────────┘
                 │ ✅ Número conocido o permitido
                 ▼
 ┌─────────────────────────────────────────────┐
-│  ✅ Mensaje procesado por el agente          │
+│ ✅ Mensaje procesado por el agente          │
 └─────────────────────────────────────────────┘
 ```
 
@@ -1427,10 +1794,6 @@ ss -ltnp | grep ':5000'
 - Consultado por `Intent_Detector` cuando detecta intención `faq`
 - Si existe cache hit se devuelve respuesta inmediatamente y se registra `FAQ_Cache: HIT`
 - Si miss → se invoca LLM y se guarda la respuesta en cache
-
-**Variables de entorno recomendadas**:
-- `FAQ_CACHE_TTL_SECONDS` (default: 3600)
-- `FAQ_CACHE_MAX_ITEMS` (default: 1000)
 
 ---
 

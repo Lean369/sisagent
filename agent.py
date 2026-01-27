@@ -20,10 +20,12 @@ from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 import pickle
 import json
+import uuid
 from dotenv import load_dotenv
 
+
 # Cargar variables de entorno lo antes posible para que módulos importados posteriormente
-# (por ejemplo `agent_metrics`) reciban las variables desde .env
+# (por ejemplo `agent_control`) reciban las variables desde .env
 load_dotenv()
 
 
@@ -31,21 +33,21 @@ load_dotenv()
 # === Configurar logging con rotación de archivos para evitar llenar el disco ===
 # Mantiene hasta 10MB por archivo, con 5 archivos de respaldo (total: 50MB máximo)
 rotating_handler = RotatingFileHandler(
-    'sisagent_verbose.log',
-    maxBytes=10*1024*1024,  # 10 MB por archivo
-    backupCount=5,  # Mantener 5 archivos de respaldo (agent_verbose.log.1, .2, etc.)
+    os.getenv('LOG_FILE', 'sisagent_verbose.log'),
+    maxBytes=int(os.getenv('MAX_BYTES_LOG_FILE', 10485760)),  # 10 MB por archivo
+    backupCount=int(os.getenv('BACKUP_COUNT_LOG_FILES', 5)),  # Mantener 5 archivos de respaldo (agent_verbose.log.1, .2, etc.)
     encoding='utf-8'
 )
-rotating_handler.setLevel(logging.DEBUG)
-rotating_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+rotating_handler.setLevel(os.getenv('LOG_LEVEL', 'DEBUG'))
+rotating_handler.setFormatter(logging.Formatter(os.getenv('LOG_FORMAT', '%(asctime)s %(levelname)s %(name)s: %(message)s')))
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+console_handler.setLevel(os.getenv('LOG_LEVEL', 'DEBUG'))
+console_handler.setFormatter(logging.Formatter(os.getenv('LOG_FORMAT', '%(asctime)s %(levelname)s %(name)s: %(message)s')))
 
 # Configurar el logger específico sin usar basicConfig para evitar duplicación
-logger = logging.getLogger('agent')
-logger.setLevel(logging.DEBUG)
+logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
+logger.setLevel(os.getenv('LOG_LEVEL', 'DEBUG'))
 
 # Limpiar handlers existentes para evitar duplicación
 if logger.hasHandlers():
@@ -65,7 +67,7 @@ logger.debug("="*80)
 
 # =========Importar external_instructions y herramientas del agente ============
 try:
-    from external_instructions import AGENT_INSTRUCTION
+    from external_instructions import AGENT_INSTRUCTION, OUTSIDE_BUSINESS_HOURS_MSG
     # Calcular una estimación del peso en tokens (heurística: ~1 token por 4 caracteres)
     if AGENT_INSTRUCTION:
         token_est = max(1, int(len(AGENT_INSTRUCTION) / 4))
@@ -83,6 +85,7 @@ except Exception as e:
     traceback.print_exc()
     AGENT_INSTRUCTION = ""
     SESSION_INSTRUCTION = ""
+    OUTSIDE_BUSINESS_HOURS_MSG = "⏰ Hola! Gracias por contactarte con Sisnova. Nuestro horario de atención es de lunes a viernes de 9:00 a 18:00." 
 
 # Log de verificación del AGENT_INSTRUCTION
 logger.info(f"🔍 Verificación AGENT_INSTRUCTION: {len(AGENT_INSTRUCTION)} caracteres")
@@ -92,18 +95,33 @@ else:
     logger.info(f"✅ AGENT_INSTRUCTION cargado correctamente")
     logger.debug(f"First 200 chars: {AGENT_INSTRUCTION[:200]}")
     
-# Importar elementos de booking_tools y agent_metrics
+# Importar elementos de booking_tools y agent_control
 from booking_tools import (
     extract_lead_info,
     trigger_booking_tool
 )
-from agent_metrics import (
+from agent_control import (
     rate_limiter,
     cache_respuestas,
-    detector_intenciones,
-    metricas
+    detector_intenciones
 )
 from ddos_protection import ddos_protection
+from agent_metrics import MetricsDB, metricas_db, MetricaMensaje
+
+# Configuración de webhook de monitoreo
+MONITORING_WEBHOOK_URL = os.getenv('MONITORING_WEBHOOK_URL', '').strip()
+MONITORING_WEBHOOK_ENABLED = bool(MONITORING_WEBHOOK_URL)
+MONITORING_WEBHOOK_INTERVAL_MINUTES = int(os.getenv('MONITORING_WEBHOOK_INTERVAL_MINUTES', '60'))
+# Modo de operaciones del sistema de monitoreo: 'push' -> el sistema externo hará POST a nuestro endpoint
+# 'pull' -> el agente enviará métricas al webhook externo (default)
+MONITORING_WEBHOOK_MODE = os.getenv('MONITORING_WEBHOOK_MODE', 'pull').strip().lower()
+
+if MONITORING_WEBHOOK_ENABLED:
+    logger.info(f"✅ Monitoring webhook habilitado: {MONITORING_WEBHOOK_URL}")
+    logger.info(f"⏱️  Intervalo de envío automático: cada {MONITORING_WEBHOOK_INTERVAL_MINUTES} minutos")
+    logger.info(f"🔀 Modo de monitoreo: {MONITORING_WEBHOOK_MODE}")
+else:
+    logger.info("⚠️  Monitoring webhook deshabilitado (MONITORING_WEBHOOK_URL no configurado)")
 
 # Cargar conocimiento del negocio desde JSON (sin uso)
 CONOCIMIENTO_NEGOCIO = {}
@@ -131,6 +149,42 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "your_anthropic_key")
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "your_hf_key")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_openai_key")
 
+# Rich prompts configuration
+RICH_PROMPTS_DATE_NOW = os.getenv("RICH_PROMPTS_DATE_NOW", "true").lower() == "true"
+RICH_PROMPTS_CLIENT_NAME = os.getenv("RICH_PROMPTS_CLIENT_NAME", "true").lower() == "true"
+RICH_PROMPTS_FIRST_MESSAGE = os.getenv("RICH_PROMPTS_FIRST_MESSAGE", "true").lower() == "true"
+RICH_PROMPTS_BOOKING_STATUS = os.getenv("RICH_PROMPTS_BOOKING_STATUS", "true").lower() == "true"
+
+# Nombre del modelo global (se puede configurar con MODEL_NAME en .env)
+
+def obtener_model_name_por_provider(provider: Optional[str]) -> str:
+    """Devuelve el nombre del modelo a usar según el proveedor `provider`.
+
+    Busca las variables de entorno específicas del proveedor y cae en
+    valores por defecto razonables si no se encuentran.
+    """
+    p = (provider or "").lower()
+    if p == 'gemini':
+        return os.getenv('GEMINI_MODEL') or os.getenv('MODEL_NAME') or 'gemini-2.5-flash-lite'
+    if p == 'anthropic':
+        return os.getenv('ANTHROPIC_MODEL') or os.getenv('MODEL_NAME') or 'claude-sonnet-4'
+    if p in ('openai', 'gpt'):
+        return os.getenv('OPENAI_MODEL') or os.getenv('MODEL_NAME') or 'gpt-3.5-turbo'
+    if p in ('huggingface', 'hf'):
+        return os.getenv('HF_MODEL') or os.getenv('MODEL_NAME') or 'mistralai/Mistral-7B-Instruct-v0.2'
+    if p == 'ollama':
+        return os.getenv('OLLAMA_MODEL') or os.getenv('MODEL_NAME') or 'llama2'
+    if p in ('local_huggingface', 'hf_local'):
+        return os.getenv('HF_LOCAL_MODEL') or os.getenv('MODEL_NAME') or 'mistralai/Mistral-7B-Instruct-v0.2'
+
+    # Fallback genérico: intentar varias variables de entorno
+    return os.getenv('MODEL_NAME') or os.getenv('OPENAI_MODEL') or os.getenv('GEMINI_MODEL') or os.getenv('HF_MODEL') or os.getenv('HF_LOCAL_MODEL') or 'gemini-2.5-flash-lite'
+
+# Inicializar MODEL_NAME a partir del proveedor configurado
+LLM_MODEL_NAME = obtener_model_name_por_provider(LLM_PROVIDER)
+
+TOOL_BOOKING_ENABLED = os.getenv("TOOL_BOOKING_ENABLED", "true").lower() == "true"
+
 # Límite de mensajes en memoria por conversación
 MAX_MESSAGES_PER_CONVERSATION = int(os.getenv("MAX_MESSAGES", "50"))  # Límite de mensajes en memoria
 
@@ -139,6 +193,10 @@ TRANSCRIPTION_ENABLED = os.getenv("TRANSCRIPTION_ENABLED", "true").lower() == "t
 TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")  # opciones: openai, whisper-local
 
 # Rate Limiter configuración
+AFH_ENABLED = os.getenv("AFH_ENABLED", "false").lower() == "true"
+BUSINESS_HOURS_START = os.getenv("BUSINESS_HOURS_START", "09:00")
+BUSINESS_HOURS_END = os.getenv("BUSINESS_HOURS_END", "18:00")
+WEEK_DAYS = os.getenv("WEEK_DAYS", "1,2,3,4,5")  # Días de la semana laborables (1=Lunes ... 7=Domingo)
 RATE_LIMITER_ENABLED = os.getenv("RATE_LIMITER_ENABLED", "true").lower() == "true"
 INTENT_DETECTOR_ENABLED = os.getenv("INTENT_DETECTOR_ENABLED", "true").lower() == "true"
 FAQ_CACHE_ENABLED = os.getenv("FAQ_CACHE_ENABLED", "true").lower() == "true"
@@ -159,6 +217,131 @@ executor = ThreadPoolExecutor(max_workers=4)  # CPU de 2 núcleos - 10 mensajes 
 # Locks para thread-safety
 memory_lock = Lock()
 lead_lock = Lock()
+
+# Helper para registrar métricas de forma simplificada
+def registrar_metrica(user_id: str, mensaje: str, inicio: float, intencion: str = None, 
+                      fue_cache: bool = False, error: bool = False, tokens: int = 0):
+    """Registra métrica de mensaje de forma simplificada"""
+    metricas_db.registrar_metrica(MetricaMensaje(
+        timestamp=time.time(),
+        user_id=user_id,
+        tiempo_procesamiento=time.time() - inicio,
+        tokens_usados=tokens,
+        fue_cache=fue_cache,
+        error=error,
+        mensaje_length=len(mensaje),
+        intencion=intencion or 'unknown'
+    ))
+
+
+def extraer_tokens_respuesta(respuesta_llm, respuesta, respuesta_texto: Optional[str] = None) -> int:
+    """Extrae el número de tokens usados por la respuesta del LLM.
+
+    Intenta extraer desde respuesta_llm.usage o respuesta_llm.llm_output.
+    Si no encuentra información explícita, estima tokens por longitud del texto (~4 caracteres por token).
+    
+    Args:
+        respuesta_llm: Objeto de respuesta del LLM (puede tener .usage o .llm_output)
+        respuesta: Contenido de la respuesta (puede ser str o dict)
+        respuesta_texto: Texto de la respuesta si ya está extraído
+    
+    Returns:
+        int: Número estimado de tokens usados
+    """
+    tokens_usados = 0
+    try:
+        if respuesta_llm is not None:
+            # 1) Intentar extraer desde .usage
+            usage = getattr(respuesta_llm, 'usage', None)
+            if usage:
+                try:
+                    if isinstance(usage, dict):
+                        tokens_usados = int(usage.get('total_tokens', 0) or 0)
+                    else:
+                        tokens_usados = int(getattr(usage, 'total_tokens', 0) or 0)
+                except Exception:
+                    tokens_usados = 0
+            else:
+                # 2) Intentar extraer desde .llm_output
+                llm_output = getattr(respuesta_llm, 'llm_output', None)
+                if llm_output:
+                    try:
+                        if isinstance(llm_output, dict):
+                            tu = llm_output.get('token_usage') or llm_output.get('tokens') or {}
+                            if isinstance(tu, dict):
+                                tokens_usados = int(tu.get('total_tokens', tu.get('completion_tokens', 0) or 0) or 0)
+                        else:
+                            if hasattr(llm_output, 'get'):
+                                tokens_usados = int(llm_output.get('token_usage', 0) or 0)
+                    except Exception:
+                        tokens_usados = 0
+
+        # 3) Si la respuesta es un dict con 'usage' o 'llm_output'
+        if tokens_usados == 0 and isinstance(respuesta, dict):
+            try:
+                usage_field = respuesta.get('usage') or (respuesta.get('llm_output') or {}).get('token_usage')
+                if isinstance(usage_field, dict):
+                    tokens_usados = int(usage_field.get('total_tokens', 0) or 0)
+            except Exception:
+                tokens_usados = 0
+    except Exception:
+        tokens_usados = 0
+
+    # Fallback: estimación basada en longitud del texto (~4 chars por token)
+    try:
+        text = respuesta_texto if respuesta_texto is not None else (respuesta if isinstance(respuesta, str) else str(respuesta))
+        if not tokens_usados:
+            tokens_usados = max(1, int(len(text) / 4))
+    except Exception:
+        tokens_usados = 0
+
+    return tokens_usados
+
+
+import tiktoken
+
+def estimar_tokens(texto_entrada: str, texto_salida: str, modelo: str = None) -> int:
+    """
+    Estima tokens de entrada y salida para un modelo LLM.
+    Funciona para OpenAI, Claude, y otros modelos similares usando tiktoken.
+    
+    Args:
+        texto_entrada: Texto del mensaje de entrada/prompt
+        texto_salida: Texto de la respuesta generada
+        modelo: Nombre del modelo (usa MODEL_NAME global si no se especifica)
+    
+    Returns:
+        int: Total de tokens estimados (entrada + salida)
+    """
+    try:
+        # Resolver modelo a usar: parámetro > variable global > default
+        modelo = modelo or MODEL_NAME or "gpt-3.5-turbo"
+        # Intenta usar encoding del modelo específico
+        encoding = tiktoken.encoding_for_model(modelo)
+    except KeyError:
+        # Fallback a encoding común (usado por GPT-3.5, GPT-4, etc)
+        encoding = tiktoken.get_encoding("cl100k_base")
+    
+    return len(encoding.encode(texto_entrada)) + len(encoding.encode(texto_salida))
+
+def estimar_costo(input_tokens: int, output_tokens: int, modelo: str) -> float:
+    """Estima costo en USD"""
+    
+    # Precios por 1M tokens (actualizar según pricing)
+    precios = {
+        'claude-sonnet-4': {'input': 3.0, 'output': 15.0},
+        'claude-opus-4': {'input': 15.0, 'output': 75.0},
+        'gpt-4': {'input': 30.0, 'output': 60.0},
+        'gpt-3.5-turbo': {'input': 0.5, 'output': 1.5},
+    }
+    
+    precio = precios.get(modelo, {'input': 1.0, 'output': 2.0})
+    
+    costo_input = (input_tokens / 1_000_000) * precio['input']
+    costo_output = (output_tokens / 1_000_000) * precio['output']
+    
+    return costo_input + costo_output
+
 
 def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, instance_name: str = None):
     """Envía un mensaje a través de Evolution API.
@@ -235,7 +418,7 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
             except Exception:
                 text = response.text
 
-            logger.debug("[SND] Tried %s with candidate=%s status=%s response=%s", endpoint_type, candidate, status, str(text)[:200])
+            logger.debug("[SND -> EV] Tried %s with candidate=%s status=%s response=%s", endpoint_type, candidate, status, str(text)[:200])
 
             if 200 <= status < 300:
                 return text
@@ -543,7 +726,7 @@ def webhook():
     """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
     try:
         payload = request.get_json()
-        logger.info("[RCV] Received webhook payload: %s", json.dumps(payload)[:500])
+        logger.info("[RCV <- EV] Received webhook payload: %s", json.dumps(payload)[:500])
         
         # Extraer información del mensaje
         if payload.get('event') == 'messages.upsert':
@@ -647,7 +830,6 @@ def webhook():
                     if respuesta is not None:
                         # If the msg contains instance info, prefer it
                         msg_instance = msg.get('instance') or msg.get('instanceId')
-                        #await enviar_mensaje_whatsapp(from_jid, respuesta, instance_id=msg_instance, instance_name=msg.get('instance'))
                         # Procesar en background usando ThreadPool
                         # Esto NO bloquea el webhook, responde inmediatamente
                         executor.submit(enviar_mensaje_whatsapp, from_jid, respuesta, instance_id=msg_instance, instance_name=msg.get('instance'))
@@ -661,20 +843,7 @@ def webhook():
     except Exception as e:
         print(f"Error en webhook: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-def es_mensaje_generico(mensaje: str) -> bool:
-    """Detecta si un mensaje es solo un saludo o agradecimiento genérico sin pregunta real"""
-    mensaje_lower = mensaje.lower().strip()
-    
-    # Palabras/frases genéricas que no requieren respuesta después de enviar el link
-    palabras_genericas = [
-        'hola', 'hello', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches',
-        'gracias', 'thanks', 'thank you', 'muchas gracias', 'ok', 'okay', 'dale', 
-        'perfecto', 'excelente', 'genial', 'bárbaro', 'entendido', 'listo', 'si', 'sí',
-        'no', 'chau', 'adiós', 'adios', 'bye', 'hasta luego', 'nos vemos'
-    ]
-    
+   
     # Si el mensaje es muy corto y está en la lista, es genérico
     if len(mensaje_lower) < 20:
         for palabra in palabras_genericas:
@@ -698,11 +867,38 @@ def mark_tool_as_executed(user_id: str):
     logger.info(f"[BOOKING] ✅ booking_sent establecido en True para user_id={user_id}")
 
 
+def es_horario_laboral():
+    ahora = datetime.now()
+    # Parsear horas configuradas (formato HH:MM) y días ("1,2,3,4,5")
+    try:
+        start_hour = int(BUSINESS_HOURS_START.split(':')[0])
+    except Exception:
+        start_hour = 9
+    try:
+        end_hour = int(BUSINESS_HOURS_END.split(':')[0])
+    except Exception:
+        end_hour = 18
+
+    try:
+        allowed_weekdays = [int(d.strip()) - 1 for d in WEEK_DAYS.split(',') if d.strip()]
+    except Exception:
+        allowed_weekdays = [0, 1, 2, 3, 4]
+
+    return (ahora.weekday() in allowed_weekdays) and (start_hour <= ahora.hour < end_hour)
+
+
 def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
     """Procesa un mensaje usando el LLM"""
     try:
         inicio = time.time()
-        metricas.registrar_inicio(user_id)
+        intencion_detectada = None
+        fue_cache_usado = False
+        hubo_error = False
+        
+        if AFH_ENABLED:
+            if not es_horario_laboral():
+                logger.info(f"[AFH] Fuera de horario laboral. user_id={user_id}")
+                return OUTSIDE_BUSINESS_HOURS_MSG
 
         # Obtener memoria del usuario
         memory = get_memory(user_id)
@@ -718,7 +914,7 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         if RATE_LIMITER_ENABLED:
             puede, mensaje_error = rate_limiter.puede_procesar(user_id)
             if not puede:
-                metricas.registrar_fin(user_id, time.time() - inicio, error=True)
+                registrar_metrica(user_id, mensaje, inicio, intencion='rate_limit_exceeded', error=True)
                 return mensaje_error
         
         # 2. DETECCIÓN RÁPIDA DE INTENCIÓN
@@ -727,37 +923,43 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
             logger.debug(f"[INTENCIÓN RÁPIDA] user_id={user_id} intención={intencion}")
             # Si es saludo o despedida simple de 2 o menos palabras, responder sin LLM
             if intencion == 'saludo' and len(mensaje.split()) <= 2 and is_first_message:
-                logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo saludo rápido para user_id={user_id}")
+                logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo saludo rápido para user_id={user_id} nombre={client_name}")
                 nombre = client_name
                 respuesta = detector_intenciones.respuesta_rapida('saludo', nombre)
-                metricas.registrar_fin(user_id, time.time() - inicio, fue_cache=True)
+                registrar_metrica(user_id, mensaje, inicio, intencion='saludo', fue_cache=True)
                 with memory_lock:  
                     memory.chat_memory.add_ai_message(respuesta)
                 return respuesta
             if intencion == 'despedida' and len(mensaje.split()) <= 2:
-                logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo despedida rápida para user_id={user_id}")
+                logger.debug(f"[INTENCIÓN RÁPIDA] Respondiendo despedida rápida para user_id={user_id} nombre={client_name}")
                 nombre = client_name
                 respuesta = detector_intenciones.respuesta_rapida('despedida', nombre)
-                metricas.registrar_fin(user_id, time.time() - inicio, fue_cache=True)
+                registrar_metrica(user_id, mensaje, inicio, intencion='despedida', fue_cache=True)
                 return respuesta
 
         # 3. CACHE DE RESPUESTAS
         if FAQ_CACHE_ENABLED:
             respuesta_cache = cache_respuestas.obtener(mensaje)
             if respuesta_cache:
-                logger.debug(f"[CACHE] Respuesta obtenida de cache para user_id={user_id}")
-                metricas.registrar_fin(user_id, time.time() - inicio, fue_cache=True)
+                logger.debug(f"[CACHE] Respuesta obtenida de cache para user_id={user_id} repuesta={str(respuesta_cache)[:100]}...")
+                fue_cache_usado = True
+                intencion_detectada = intencion if intencion else 'faq_cache'
+                registrar_metrica(user_id, mensaje, inicio, intencion=intencion_detectada, fue_cache=True)
                 return respuesta_cache
         
-         # Enviar nombre del cliente y estados de booking_sent y is_first_message en el prompt
-        client_info = f"\nNombre del cliente: {client_name}" if client_name else ""
-        booking_status = getattr(memory, 'booking_sent', False)
-        booking_info = f"\n\n🚨 ESTADO: booking_sent = {booking_status}"
-        is_first_message = f"\n\n🚨 ESTADO: is_first_message = {is_first_message}"
-        logger.debug(f"[BOOKING] Estado de booking_sent para user_id={user_id}: {booking_status}")
-        
         # Crear sistema de prompt enriquecido
-        system_prompt = AGENT_INSTRUCTION + f"""\nFecha: {datetime.now().strftime("%Y-%m-%d")}{client_info}{booking_info}{is_first_message}"""
+        system_prompt = AGENT_INSTRUCTION
+        if RICH_PROMPTS_DATE_NOW:
+            system_prompt += f"\nLa fecha y hora actual es: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
+        if RICH_PROMPTS_CLIENT_NAME:
+            system_prompt += f"\nEl nombre del usuario que envía el mensaje es: {client_name}" if client_name else ""
+        if RICH_PROMPTS_BOOKING_STATUS:
+            booking_status = getattr(memory, 'booking_sent', False)
+            system_prompt += f"\n\n🚨 ESTADO: booking_sent = {booking_status}"
+        if RICH_PROMPTS_FIRST_MESSAGE:
+            system_prompt += f"\n\n🚨 ESTADO: is_first_message = {is_first_message}"
+        
+        #logger.debug(f"[PROMPT] Sistema para user_id={user_id}:\n{system_prompt}")
         
         # Construir mensajes
         messages = [SystemMessage(content=system_prompt)]
@@ -766,6 +968,7 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         
         # Invocar LLM con sistema de fallback
         try:
+            LLM_MODEL_NAME = obtener_model_name_por_provider(LLM_PROVIDER)
             respuesta_llm = agente.invoke(messages)
             respuesta = respuesta_llm.content
             # LOG DEL MENSAJE ENVIADO AL LLM
@@ -781,6 +984,7 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 logger.warning(f"⚠️ Intentando con proveedor de respaldo: {fallback_provider}")
                 try:
                     # Obtener instancia del LLM de fallback
+                    LLM_MODEL_NAME = obtener_model_name_por_provider(fallback_provider)
                     agente_fallback = get_llm_model(provider_override=fallback_provider)
                     respuesta_llm = agente_fallback.invoke(messages)
                     respuesta = respuesta_llm.content
@@ -795,7 +999,7 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         
         # LOG DE LA RESPUESTA
         logger.debug("="*80)
-        logger.debug(f"[RESPUESTA DEL LLM]: {str(respuesta)[:200]}")
+        logger.debug(f"[RESPUESTA DEL LLM]: {str(respuesta)[:80]}...")
         logger.debug("="*80)
         
         # Manejar diferentes formatos de respuesta del LLM
@@ -830,8 +1034,12 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
                 accion = datos.get("accion")
                 
                 if accion == "reserva":
-                    respuesta = trigger_booking_tool(user_id, mensaje, client_name=client_name)
-                    mark_tool_as_executed(user_id)
+                    if TOOL_BOOKING_ENABLED:
+                        respuesta = trigger_booking_tool(user_id, mensaje, client_name=client_name)
+                        mark_tool_as_executed(user_id)
+                    else:
+                        logger.warning(f"Acción desconocida recibida del LLM: {accion}")
+                        respuesta = "Lo siento, no puedo procesar esa solicitud en este momento."
 
             except json.JSONDecodeError as e:
                 logger.warning(f"Error al parsear JSON: {e}")
@@ -860,15 +1068,123 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         if len(mensaje) <= 10:
             logger.debug(f"[CACHE] Guardando en cache el mensaje = {mensaje} length={len(mensaje)}   ")
             cache_respuestas.guardar(mensaje, respuesta)
-        
+
+        # Estimar tokens usando mensaje de entrada y respuesta
         tiempo_total = time.time() - inicio
-        metricas.registrar_fin(user_id, tiempo_total, fue_cache=False)
+        texto_respuesta = respuesta_texto if 'respuesta_texto' in locals() else str(respuesta)
+        tokens_usados = estimar_tokens(mensaje, texto_respuesta, LLM_MODEL_NAME)
+        logger.debug(f"[METRICS] user_id={user_id} tiempo_total={tiempo_total:.2f}s tokens_usados={tokens_usados} model={LLM_MODEL_NAME}")
+        registrar_metrica(user_id, mensaje, inicio, intencion=intencion_detectada, fue_cache=fue_cache_usado, tokens=tokens_usados)
 
         return respuesta
     
     except Exception as e:
         logger.exception(f"Error procesando mensaje: {e}")
+        # Registrar métrica de error
+        try:
+            registrar_metrica(user_id, mensaje, inicio, intencion='exception', error=True)
+        except Exception:
+            pass  # No fallar si el registro de métrica falla
         return "Lo siento, ocurrió un error al procesar tu mensaje. Por favor intenta de nuevo."
+
+# Endpoints Flask
+@app.route('/stats', methods=['GET'])
+def obtener_estadisticas():
+    """Endpoint para estadísticas generales"""
+    # Soporta dos modos:
+    # - Por horas: ?horas=24 (default)
+    # - Por rango ISO: ?start=2026-01-01T00:00:00&end=2026-01-31T23:59:59
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if (start and not end) or (end and not start):
+        return jsonify({"error": "Proporcione ambos parámetros 'start' y 'end' o ninguno"}), 400
+
+    try:
+        if start and end:
+            stats = metricas_db.obtener_estadisticas_por_rango(start, end)
+        else:
+            horas = request.args.get('horas', 24, type=int)
+            stats = metricas_db.obtener_estadisticas_generales(horas)
+        return jsonify(stats)
+    except Exception as e:
+        logger.exception("Error obteniendo estadísticas generales")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/stats/hourly', methods=['GET'])
+def obtener_estadisticas_horarias():
+    """Endpoint para métricas por hora"""
+    # Soporta dos modos:
+    # - Por horas: ?horas=24 (default)
+    # - Por rango ISO: ?start=2026-01-01T00:00:00&end=2026-01-31T23:59:59
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if (start and not end) or (end and not start):
+        return jsonify({"error": "Proporcione ambos parámetros 'start' y 'end' o ninguno"}), 400
+
+    try:
+        if start and end:
+            stats = metricas_db.obtener_metricas_por_hora_rango(start, end)
+        else:
+            horas = request.args.get('horas', 24, type=int)
+            stats = metricas_db.obtener_metricas_por_hora(horas)
+        return jsonify(stats)
+    except Exception as e:
+        logger.exception("Error obteniendo métricas por hora")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/stats/top-users', methods=['GET'])
+def obtener_top_usuarios_endpoint():
+    """Endpoint para usuarios más activos"""
+    limit = request.args.get('limit', 10, type=int)
+    try:
+        top = metricas_db.obtener_top_usuarios(limit)
+        return jsonify(top)
+    except Exception as e:
+        logger.exception("Error obteniendo top usuarios")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/cleanup', methods=['POST'])
+def limpiar_metricas():
+    """Endpoint para limpiar métricas antiguas (requiere auth)"""
+    # TODO: Agregar autenticación
+    dias = request.json.get('dias', 30)
+    try:
+        eliminados = metricas_db.limpiar_datos_antiguos(dias)
+        return jsonify({"eliminados": eliminados, "dias": dias})
+    except Exception as e:
+        logger.exception("Error limpiando métricas antiguas")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/admin/cleanup/all', methods=['POST'])
+def limpiar_todas_metricas_endpoint():
+    """Endpoint administrativo que borra TODAS las métricas (detalle y agregados).
+
+    Nota: Esta acción es destructiva y debe protegerse en producción.
+    """
+    # TODO: Agregar autenticación/ACL en entornos productivos
+    try:
+        resultado = metricas_db.borrar_todas_metricas()
+        return jsonify({"deleted": resultado}), 200
+    except Exception as e:
+        logger.exception("Error borrando todas las métricas")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/admin/metrics/flush', methods=['POST'])
+def admin_metrics_flush():
+    """Endpoint administrativo para forzar el flush del buffer de métricas en memoria."""
+    # TODO: Agregar autenticación/ACL en entornos productivos
+    try:
+        resultado = metricas_db.forzar_flush()
+        return jsonify(resultado), 200
+    except Exception as e:
+        logger.exception("Error forzando flush de métricas")
+        return jsonify({"error": str(e)}), 500
+
+
+from webhooks import webhooks_bp
+app.register_blueprint(webhooks_bp)
 
 
 @app.route("/health", methods=['GET'])
@@ -883,17 +1199,6 @@ def ddos_stats():
     if not DDOS_PROTECTION_ENABLED or not ddos_protection:
         return jsonify({"enabled": False, "message": "DDoS protection disabled"})
     return jsonify({"enabled": True, "stats": ddos_protection.get_stats()})
-
-
-@app.route("/metrics", methods=['GET'])
-def metrics():
-    """Endpoint de métricas del sistema"""
-    try:
-        stats = metricas.obtener_estadisticas()
-        return jsonify(stats)
-    except Exception as e:
-        logger.exception("Error obteniendo métricas")
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/memory", methods=['GET'])
@@ -958,10 +1263,20 @@ if __name__ == '__main__':
     print("✅ Inicialización completada - Esperando mensajes...")
     print("="*60 + "\n")
 
-    # Ejecutar Flask con threading habilitado
-    app.run(
-        host='0.0.0.0',
-        port=5000,
-        threaded=True,  # Importante: habilitar threading
-        debug=False     # Cambiar a False en producción
-    )
+    # Iniciar scheduler de webhook automático (delegado al módulo webhooks)
+    from webhooks import iniciar_scheduler_webhook
+    scheduler = iniciar_scheduler_webhook()
+
+    try:
+        # Ejecutar Flask con threading habilitado
+        app.run(
+            host='0.0.0.0',
+            port=5000,
+            threaded=True,  # Importante: habilitar threading
+            debug=False     # Cambiar a False en producción
+        )
+    finally:
+        # Detener scheduler al cerrar la aplicación
+        if scheduler:
+            scheduler.shutdown()
+            logger.info("🛑 Scheduler detenido")

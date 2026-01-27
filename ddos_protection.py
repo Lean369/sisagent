@@ -18,7 +18,7 @@ from collections import defaultdict, deque
 from typing import Optional, Tuple, Set
 from datetime import datetime, timedelta
 
-logger = logging.getLogger('agent')
+logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
 
 
 class GlobalRateLimiter:
