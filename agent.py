@@ -13,7 +13,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_community.llms import HuggingFaceHub
 from langchain_community.chat_models import ChatHuggingFace
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_classic.memory import ConversationBufferMemory
+# ConversationBufferMemory import removido - se implementa manualmente para evitar conflictos
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request as GoogleRequest
@@ -106,7 +106,7 @@ from agent_control import (
     detector_intenciones
 )
 from ddos_protection import ddos_protection
-from agent_metrics import MetricsDB, metricas_db, MetricaMensaje
+from agent_metrics import metricas_db, MetricaMensaje
 
 # Configuración de webhook de monitoreo
 MONITORING_WEBHOOK_URL = os.getenv('MONITORING_WEBHOOK_URL', '').strip()
@@ -212,7 +212,7 @@ app = Flask(__name__)
 # Pool de threads para manejar múltiples mensajes en paralelo
 # CPU de 4 núcleos (max_workers=10)
 # CPU de 8+ núcleos (max_workers=20)
-executor = ThreadPoolExecutor(max_workers=4)  # CPU de 2 núcleos - 10 mensajes simultáneos
+executor = ThreadPoolExecutor(max_workers=10)  # CPU de 2 núcleos - 10 mensajes simultáneos
 
 # Locks para thread-safety
 memory_lock = Lock()
@@ -540,41 +540,29 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
         return None
 
 
-def get_memory(user_id: str) -> ConversationBufferMemory:
+def get_memory(user_id: str):
     """Obtiene o crea memoria para un usuario (thread-safe)"""
     with memory_lock:
         logger.debug("get_memory called for user_id=%s", user_id)
         if user_id not in user_memories:
-            # Intentar usar ConversationBufferMemory si está disponible
-            try:
-                # Ya importado al inicio del archivo
-                memory_obj = ConversationBufferMemory(
-                    memory_key="chat_history",
-                    return_messages=True
-                )
-                # Agregar flag para rastrear si se envió link de reserva
-                memory_obj.booking_sent = False
-                user_memories[user_id] = memory_obj
-                logger.debug("Created ConversationBufferMemory with booking_sent=False for user_id=%s", user_id)
-            except Exception:
-                # Fallback simple: almacenar mensajes en memoria con la misma API mínima
-                class _SimpleChatMemory:
-                    def __init__(self):
-                        self.messages: List = []
+            # Implementación simple de memoria de conversación
+            class _SimpleChatMemory:
+                def __init__(self):
+                    self.messages: List = []
 
-                    def add_user_message(self, text: str):
-                        self.messages.append(HumanMessage(content=text))
+                def add_user_message(self, text: str):
+                    self.messages.append(HumanMessage(content=text))
 
-                    def add_ai_message(self, text: str):
-                        self.messages.append(AIMessage(content=text))
+                def add_ai_message(self, text: str):
+                    self.messages.append(AIMessage(content=text))
 
-                class _SimpleMemory:
-                    def __init__(self):
-                        self.chat_memory = _SimpleChatMemory()
-                        self.booking_sent = False
+            class _SimpleMemory:
+                def __init__(self):
+                    self.chat_memory = _SimpleChatMemory()
+                    self.booking_sent = False
 
-                user_memories[user_id] = _SimpleMemory()
-                logger.debug("Created simple in-memory conversation memory with booking_sent=False for user_id=%s", user_id)
+            user_memories[user_id] = _SimpleMemory()
+            logger.debug("Created simple in-memory conversation memory with booking_sent=False for user_id=%s", user_id)
 
     return user_memories[user_id]
 
@@ -621,6 +609,7 @@ def get_llm_model(provider_override=None):
             google_api_key=GEMINI_API_KEY,
             temperature=0.8,
             max_tokens=2048,
+            convert_system_message_to_human=True  # Convertir SystemMessage a HumanMessage
         )
     
     elif provider == "anthropic":
@@ -1182,6 +1171,26 @@ def admin_metrics_flush():
         logger.exception("Error forzando flush de métricas")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/metrics', methods=['GET'])
+def metricas_prometheus():
+    """Métricas en formato Prometheus"""
+    return f"""
+# HELP mensajes_en_cola Mensajes esperando procesamiento
+# TYPE mensajes_en_cola gauge
+mensajes_en_cola {len(executor._threads)}
+
+# HELP cpu_usage Uso de CPU
+# TYPE cpu_usage gauge
+cpu_usage {psutil.cpu_percent()}
+
+# HELP memory_usage Uso de memoria MB
+# TYPE memory_usage gauge
+memory_usage {psutil.Process().memory_info().rss / 1024 / 1024}
+
+# HELP mensajes_procesados_total Total de mensajes procesados
+# TYPE mensajes_procesados_total counter
+mensajes_procesados_total {metricas.mensajes_procesados}
+"""
 
 from webhooks import webhooks_bp
 app.register_blueprint(webhooks_bp)

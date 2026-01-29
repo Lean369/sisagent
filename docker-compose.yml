@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  agent:
+    image: sisnova/sisagent:v.1.0.0
+    container_name: sisagent
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./sisagent_verbose.log:/app/sisagent_verbose.log
+      - ./data:/app/data
+    depends_on:
+      - redis
+      - db
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME_METRICS:-metrics_db}
+      POSTGRES_USER: ${DB_USER:-sisbot_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:

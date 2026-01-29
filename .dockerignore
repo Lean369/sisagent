@@ -1,0 +1,41 @@
+# Ignore virtual environments and local artifacts
+venv
+.venv
+env/
+*.pyc
+__pycache__
+.git
+.gitignore
+.DS_Store
+
+# Data, models and runtime files
+data/
+models/
+*.pth
+*.pt
+*.onnx
+*.bin
+
+# Logs, env and temp
+*.log
+.env
+*.sqlite3
+*.db
+tmp/
+
+# Editor/project files
+.vscode/
+.idea/
+
+# Node / build artifacts
+node_modules/
+dist/
+build/
+
+# Other
+coverage/
+
+# Project docs and support files (no incluir en la imagen)
+Support/
+docs/
+

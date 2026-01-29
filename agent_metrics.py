@@ -16,11 +16,11 @@ logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
 
 # Configuración de PostgreSQL
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST_METRICS', 'localhost'),
+    'host': os.getenv('DB_HOST', 'localhost'),
     'database': os.getenv('DB_NAME_METRICS', 'sisbot_cliente_1'),
-    'user': os.getenv('DB_USER_METRICS', 'sisbot_user'),
-    'password': os.getenv('DB_PASSWORD_METRICS', 'postgres_password'),
-    'port': os.getenv('DB_PORT_METRICS', '5432')
+    'user': os.getenv('DB_USER', 'sisbot_user'),
+    'password': os.getenv('DB_PASSWORD', 'postgres_password'),
+    'port': os.getenv('DB_PORT', '5432')
 }
 
 # Pool de conexiones (inicialización lazy para evitar errores al importar)
@@ -596,8 +596,8 @@ class SistemaMetricasDB:
         """Asegura que el buffer se guarde al destruir el objeto"""
         self._flush_buffer()
 
-# Instancia global
+# # Instancia global
 metricas_db = SistemaMetricasDB()
 
-# Alias para compatibilidad
+# # Alias para compatibilidad
 MetricsDB = SistemaMetricasDB

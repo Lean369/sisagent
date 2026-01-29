@@ -188,6 +188,8 @@ curl -X POST https://evoapi.sisnova.com.ar/webhook/set/prueba-py-agent \
     "webhook_base64": false,
     "events": ["MESSAGES_UPSERT"]
   }'
+
+  curl -X POST https://evoapi.sisnova.com.ar/webhook/set/prueba-py-agent -H "Content-Type: application/json" -H "apikey: 9d15c6d04d216cc8becc3721d8199c20" -d '{"webhook":{"url":"http://sisagent_cliente1_sisagent:5000/webhook","enabled":true,"webhookByEvents":false,"webhookBase64":false,"events":["MESSAGES_UPSERT"]}}' && echo ''
 ```
 
 ## Gestión de Memoria Conversacional
@@ -457,7 +459,8 @@ except Exception as llm_error:
 - El fallback debe ser diferente del principal (se verifica automáticamente)
 - Cada cambio de proveedor registra logs para auditoría
 
-````### Monitoreo de Memoria
+---------------------------------------------------------------
+### Monitoreo de Memoria
 
 #### Endpoints Disponibles
 
@@ -493,6 +496,7 @@ GET http://localhost:5000/memory/5491131376731@s.whatsapp.net
 }
 ```
 
+-------------------------------------------------------------
 ## API Endpoints
 
 ### Webhook Receiver
@@ -533,7 +537,8 @@ curl -sS http://localhost:5000/health
 
 **Respuesta**: {"status": "ok"}
 
-### Métricas (Metric Endpoints)
+---------------------------------------------------
+## Métricas (Metric Endpoints)
 
 Ejemplos de uso de los endpoints de métricas para diagnóstico y monitoreo.
 
@@ -675,8 +680,69 @@ Respuesta de ejemplo (error):
   "error": "Timeout (>10s)"
 }
 ```
+- Metrica de performance para determinar cantidad de réplicas necesarias (Prometheus format):
 
-**Configuración del webhook de monitoreo**:
+```bash
+@app.route('/metrics', methods=['GET'])
+def metricas_prometheus():
+    """Métricas en formato Prometheus"""
+    return f"""
+# HELP mensajes_en_cola Mensajes esperando procesamiento
+# TYPE mensajes_en_cola gauge
+mensajes_en_cola {len(executor._threads)}
+
+# HELP cpu_usage Uso de CPU
+# TYPE cpu_usage gauge
+cpu_usage {psutil.cpu_percent()}
+
+# HELP memory_usage Uso de memoria MB
+# TYPE memory_usage gauge
+memory_usage {psutil.Process().memory_info().rss / 1024 / 1024}
+
+# HELP mensajes_procesados_total Total de mensajes procesados
+# TYPE mensajes_procesados_total counter
+mensajes_procesados_total {metricas.mensajes_procesados}
+"""
+```
+### **Indicadores para escalar:**
+```
+🔴 NECESITAS MÁS RÉPLICAS si:
+- Mensajes en cola > 10 consistentemente
+- CPU > 80% por más de 5 minutos
+- Tiempo de respuesta > 30 segundos
+- Errores de timeout frecuentes
+
+🟢 PUEDES REDUCIR RÉPLICAS si:
+- Mensajes en cola = 0 siempre
+- CPU < 30% constantemente
+- Réplicas > 1 y tráfico muy bajo
+```
+
+---
+
+## 💰 Análisis de costos
+
+### **Servidor dedicado ($50/mes - 8 cores, 16GB RAM):**
+
+Configuración A: 10 clientes x 1 réplica
+├── Recursos usados: 50-70%
+├── Capacidad restante: 30-50%
+├── Clientes que soporta: 10-12 ✅
+└── Costo por cliente: $4-5/mes
+
+Configuración B: 10 clientes x 2 réplicas
+├── Recursos usados: 90-100%
+├── Capacidad restante: 0-10%
+├── Clientes que soporta: 10 máximo ⚠️
+└── Costo por cliente: $5/mes
+
+Configuración C: 5 clientes x 2 réplicas
+├── Recursos usados: 50-60%
+├── Capacidad restante: 40-50%
+├── Clientes que soporta: 5-6 ✅
+└── Costo por cliente: $8-10/mes (premium)
+----------------------------------------------------------------------
+## Configuración del webhook de monitoreo
 
 Configura la URL del webhook y el intervalo de envío automático en `.env`:
 
@@ -715,7 +781,8 @@ El payload enviado al webhook incluye:
 
 Nota: Protege este endpoint en producción. El webhook tiene timeout de 10 segundos.
 
-### DDoS Protection Stats
+-------------------------------------------------------------------
+## DDoS Protection Stats
 
 ```bash
 curl -sS http://localhost:5000/ddos-stats
@@ -748,18 +815,7 @@ curl -sS http://localhost:5000/ddos-stats
 }
 ```
 
-### Memory Inspection
-
-```bash
-# Lista de usuarios en memoria
-curl -sS http://localhost:5000/memory
-
-# Detalle de memoria de un usuario (ejemplo de user_id)
-curl -sS "http://localhost:5000/memory/5491131376731@s.whatsapp.net"
-```
-
-Ver sección "Monitoreo de Memoria" arriba.
-
+----------------------------------------------------------------
 ## Flujo de Procesamiento de Mensajes
 
 Resumen del flujo con `Intent_Detector`, `FAQ_Cache` y monitoreo (métricas):
@@ -2054,4 +2110,10 @@ Flask + Threading     | Baja        | 60-120       |    10-20             | 15 m
 Flask + Celery + Redis| Media       | 300-600      |    50-100            | 30 min
 FastAPI + AsyncIO     | Media       | 200-400      |    30-60             | 20 min
 FastAPI + Celery      | Alta        | 600-1200     |    100-500           | 1 hora
+
+Recurso	                1 Instancia	2 Instancias	3 Instancias
+Workers concurrentes	          10	20	30
+RAM estimada	                ~1GB	~2GB	~3GB
+Mensajes/minuto (2s cada uno)	~300	~600	~900
+CPU recomendada	                2+ cores	4+ cores	8+ cores
 
