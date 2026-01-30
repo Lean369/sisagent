@@ -952,9 +952,9 @@ def procesar_mensaje(user_id: str, mensaje: str, client_name: str = "") -> str:
         
         # Construir mensajes
         messages = [SystemMessage(content=system_prompt)]
-        messages.extend(memory.chat_memory.messages)
         messages.append(HumanMessage(content=mensaje))
-        
+        messages.extend(memory.chat_memory.messages)
+
         # Invocar LLM con sistema de fallback
         try:
             LLM_MODEL_NAME = obtener_model_name_por_provider(LLM_PROVIDER)
