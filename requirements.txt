@@ -1,44 +1,22 @@
-# --- FastAPI y Servidor ---
-fastapi>=0.110.0
-uvicorn>=0.30.0
-httpx>=0.27.0
-requests>=2.32.0
+# --- BASE ---
 python-dotenv>=1.0.0
+loguru>=0.7.2
 
-# --- Núcleo LangChain (Versiones modernas) ---
-# Es CRÍTICO actualizar esto para soportar 'state_modifier' en LangGraph
+# --- LANGCHAIN MODERNO (v0.3+) ---
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
+langgraph>=0.2.0
 
-# --- Integraciones de LLMs (Providers) ---
+# --- INTEGRACIONES ---
 langchain-openai>=0.2.0
+langchain-anthropic>=0.3.0
 langchain-google-genai>=2.0.0
-langchain-anthropic>=0.2.0
-langchain-huggingface>=0.1.0  # <-- FALTABA ESTE para tu factory
-google-generativeai>=0.8.0
-langchain-google-vertexai>=1.0.0
+langchain-groq>=0.2.0
+langchain-google-genai>=2.0.0
 
-# --- LangGraph y Persistencia ---
-# LangGraph evoluciona rápido, mejor usar >= para obtener fixes recientes
-langgraph>=0.2.20
-langgraph-checkpoint>=2.0.0
-langgraph-checkpoint-postgres>=2.0.0
-langgraph-prebuilt>=0.1.0
-
-# --- HuggingFace ---
-huggingface-hub>=0.25.0
-
-# --- Google APIs (General) ---
-google-auth>=2.35.0
-google-api-python-client>=2.140.0
-gspread>=6.0.0
-
-# --- Base de Datos (Postgres Async/Sync) ---
-# LangGraph Checkpoint Postgres usa psycopg 3 (no psycopg2)
-psycopg[binary,pool]>=3.2.0
-
-# --- Utilidades ---
-openai>=1.50.0 # SDK directo (por si acaso)
-pydantic>=2.9.0
-APScheduler>=3.10.4
+# --- BASE DE DATOS ---
+langchain-postgres>=0.0.12
+psycopg-pool>=3.2.0
+psycopg[binary]>=3.2.0
+langgraph-checkpoint-postgres

@@ -1,9 +1,10 @@
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+#from typing import Dict, List, Optional
+
 from flask import Flask, request, jsonify
-from concurrent.futures import ThreadPoolExecutor
+#from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 import logging
 from logging.handlers import RotatingFileHandler
@@ -17,12 +18,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
-from langchain_classic.memory import ConversationBufferMemory
-
+from typing import TypedDict, Annotated
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
-# NOTA: Importamos desde .postgres, NO desde .postgres.aio
+from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
+import operator
 from psycopg_pool import ConnectionPool
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -107,18 +107,12 @@ DB_PORT = os.getenv('DB_PORT', '5432')
 
 DB_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# Creamos un Pool de conexiones real.
-# min_size=1: Siempre mantiene al menos 1 conexión viva.
-# max_size=20: Puede crecer hasta 20 conexiones simultáneas si hay mucho tráfico.
-connection_pool = ConnectionPool(
-    conninfo=DB_URI, 
-    min_size=1, 
-    max_size=20,
-    kwargs={"autocommit": True}
-)
-
-# Creamos el checkpointer global usando ese pool
-checkpointer = PostgresSaver(connection_pool)
+# Crea la base de datos si no existe (ejecuta una vez)
+from sqlalchemy import create_engine
+engine = create_engine(DB_URI.rsplit("/", 1)[0] + "/postgres")  # Conecta a db 'postgres' para crear
+with engine.connect() as conn:
+    conn.execute("COMMIT")
+    conn.execute("CREATE DATABASE n8n_checkpoints IF NOT EXISTS")
 
 # =========Importar external_instructions y herramientas del agente ============
 try:
@@ -257,21 +251,10 @@ INTENT_DETECTOR_ENABLED = os.getenv("INTENT_DETECTOR_ENABLED", "true").lower() =
 FAQ_CACHE_ENABLED = os.getenv("FAQ_CACHE_ENABLED", "true").lower() == "true"
 DDOS_PROTECTION_ENABLED = os.getenv("DDOS_PROTECTION_ENABLED", "true").lower() == "true"
 
-# Almacenamiento simple de memoria por usuario (thread-safe con Lock)
-user_memories: Dict[str, Dict] = {}
-
 
 # Configuración
 app = Flask(__name__)
 
-# Pool de threads para manejar múltiples mensajes en paralelo
-# CPU de 4 núcleos (max_workers=10)
-# CPU de 8+ núcleos (max_workers=20)
-executor = ThreadPoolExecutor(max_workers=4)  # CPU de 2 núcleos - 10 mensajes simultáneos
-
-# Locks para thread-safety
-memory_lock = Lock()
-lead_lock = Lock()
 
 # Helper para registrar métricas de forma simplificada
 def registrar_metrica(user_id: str, mensaje: str, inicio: float, intencion: str = None, 
@@ -595,67 +578,22 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
         return None
 
 
-def get_memory(user_id: str) -> ConversationBufferMemory:
-    """Obtiene o crea memoria para un usuario (thread-safe)"""
-    with memory_lock:
-        logger.debug("get_memory called for user_id=%s", user_id)
-        if user_id not in user_memories:
-            # Intentar usar ConversationBufferMemory si está disponible
-            try:
-                # Ya importado al inicio del archivo
-                memory_obj = ConversationBufferMemory(
-                    memory_key="chat_history",
-                    return_messages=True
-                )
-                # Agregar flag para rastrear si se envió link de reserva
-                memory_obj.booking_sent = False
-                user_memories[user_id] = memory_obj
-                logger.debug("Created ConversationBufferMemory with booking_sent=False for user_id=%s", user_id)
-            except Exception:
-                # Fallback simple: almacenar mensajes en memoria con la misma API mínima
-                class _SimpleChatMemory:
-                    def __init__(self):
-                        self.messages: List = []
-
-                    def add_user_message(self, text: str):
-                        self.messages.append(HumanMessage(content=text))
-
-                    def add_ai_message(self, text: str):
-                        self.messages.append(AIMessage(content=text))
-
-                class _SimpleMemory:
-                    def __init__(self):
-                        self.chat_memory = _SimpleChatMemory()
-                        self.booking_sent = False
-
-                user_memories[user_id] = _SimpleMemory()
-                logger.debug("Created simple in-memory conversation memory with booking_sent=False for user_id=%s", user_id)
-
-    return user_memories[user_id]
+@tool
+def enviar_mensaje(texto: str) -> str:
+    """Envía un mensaje de respuesta al usuario (simulación)."""
+    print(f"📱 Enviando mensaje: {texto}")
+    return "Mensaje enviado correctamente"
 
 
-def truncate_memory(memory) -> None:
-    """
-    Trunca la memoria para mantener solo los últimos MAX_MESSAGES_PER_CONVERSATION mensajes.
-    Modifica la memoria in-place.
-    """
-    try:
-        current_count = len(memory.chat_memory.messages)
-        if current_count > MAX_MESSAGES_PER_CONVERSATION:
-            # Mantener solo los últimos N mensajes
-            memory.chat_memory.messages = memory.chat_memory.messages[-MAX_MESSAGES_PER_CONVERSATION:]
-            logger.info(
-                f"Truncated memory: {current_count} → {MAX_MESSAGES_PER_CONVERSATION} messages"
-            )
-    except Exception as e:
-        logger.warning(f"Failed to truncate memory: {e}")
+tools = [enviar_mensaje]
 
 
 def crear_agente():
     """Crea el LLM para el agente"""
     llm = get_llm_model()
+    llm_with_tools = llm.bind_tools(tools)
     logger.debug("LLM instance created: %s", type(llm).__name__)
-    return llm
+    return llm_with_tools
 
 # Patron factory para obtener el modelo LLM según configuración
 def get_llm_model(provider_override=None):

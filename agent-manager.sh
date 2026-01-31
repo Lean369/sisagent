@@ -1,5 +1,6 @@
 #!/bin/bash
 # Script para gestionar el agente de Python
+# ./agent-manager.sh restart
 # cd /home/leanusr/sisagent && ./agent-manager.sh restart
 # sleep 3 && cd /home/leanusr/sisagent && ./agent-manager.sh status
 
@@ -7,8 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PYTHON_BIN="./venv/bin/python"
-AGENT_SCRIPT="agent.py"
-LOG_FILE="sisagent_verbose.log"
+#AGENT_SCRIPT="agente.py"
+AGENT_SCRIPT="app.py"
+LOG_FILE="logs/sisagent_verbose.log"
 PID_FILE="agent.pid"
 
 # Colores para output
@@ -19,7 +21,7 @@ NC='\033[0m' # No Color
 
 # Función para obtener PID del agente
 get_agent_pid() {
-    pgrep -f "python.*agent.py" | head -1
+    pgrep -f "python.*$AGENT_SCRIPT" | head -1
 }
 
 # Función para verificar si el agente está corriendo
@@ -55,8 +57,8 @@ start() {
     fi
     
     # Iniciar el agente en modo
-    #nohup $PYTHON_BIN $AGENT_SCRIPT > /dev/null 2>&1 &
-    nohup $PYTHON_BIN $AGENT_SCRIPT >> sisagent_verbose.log 2>&1 &
+    nohup $PYTHON_BIN $AGENT_SCRIPT > /dev/null 2>&1 &
+    #nohup $PYTHON_BIN $AGENT_SCRIPT >> logs/sisagent_verbose.log 2>&1 &
     local pid=$!
     
     # Esperar un momento para verificar que se inició
@@ -71,12 +73,12 @@ start() {
             echo -e "${GREEN}✅ Health check OK${NC}"
         else
             echo -e "${YELLOW}⚠️  El agente está corriendo pero no responde en puerto 5000${NC}"
-            echo "   Revisa: tail -f sisagent_verbose.log"
+            echo "   Revisa: tail -f logs/sisagent_verbose.log"
         fi
         return 0
     else
         echo -e "${RED}❌ Error al iniciar el agente${NC}"
-        echo "   Revisa: tail -20 sisagent_verbose.log"
+        echo "   Revisa: tail -20 logs/sisagent_verbose.log"
         return 1
     fi
 }
