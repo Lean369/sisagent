@@ -11,7 +11,7 @@ import sys
 from langchain_core.runnables import RunnableConfig
 from config_negocios import CONFIGURACIONES
 from langchain_core.tools import tool
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage, RemoveMessage
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -76,7 +76,21 @@ pool = ConnectionPool(
     conninfo=DB_URI,
     min_size=1,  # Mantiene al menos 1 conexión viva
     max_size=20, # Soporta hasta 20 usuarios simultáneos procesando
-    kwargs={"autocommit": True, "prepare_threshold": 0}
+    timeout=30,           # Esperar máx 30s por una conexión libre
+    max_lifetime=600,     # (10 min) Matar conexiones viejas para forzar reconexión fresca
+    max_idle=300,         # (5 min) Cerrar conexiones que no hacen nada
+    reconnect_timeout=5,  # Si se cae la DB, intentar reconectar cada 5s
+
+    kwargs={
+        "autocommit": True, 
+        "prepare_threshold": 0,
+        
+        # Opciones de TCP para mantener el canal despierto (Keepalive)
+        "keepalives": 1,
+        "keepalives_idle": 30,     # Ping cada 30 segundos
+        "keepalives_interval": 10,
+        "keepalives_count": 5
+    }
 )
 
 # Inicializar tablas (Solo se ejecuta una vez al arrancar)
@@ -169,59 +183,93 @@ class AgentState(TypedDict):
 
 
 # Nodo del Agente (Cerebro)
+# agente.py
 def nodo_agente(state: AgentState, config: RunnableConfig):
     try:
-        # LangGraph guarda tus datos personalizados dentro de la clave 'configurable'
+        # --- 1. CONFIGURACIÓN ---
         configurable = config.get("configurable", {})
-    
         business_id = configurable.get("business_id")
         thread_id = configurable.get("thread_id")
         nombre_cliente = configurable.get("client_name", "Cliente")
-        logger.debug(f"Negocio ID: {business_id}, Thread ID: {thread_id}, Nombre Cliente: {nombre_cliente}")
         
-        # Buscamos la configuración de ese negocio
         info_negocio = CONFIGURACIONES.get(business_id)
+        prompt_sistema = info_negocio['system_prompt'] if info_negocio else "Eres un asistente útil."
         
-        if not info_negocio:
-            logger.error(f"🔴 Configuración no encontrada para business_id: {business_id}")
-            prompt_sistema = "Eres un asistente útil."
-        else:
-            logger.debug(f"Configuración cargada para business_id: {business_id} - nombre de negocio: {info_negocio['nombre']}")
-            logger.debug(f"Tools habilitadas: {info_negocio['tools_habilitadas']}")
-            # 3. ENRIQUECIMIENTO DEL PROMPT
-            prompt_final = (
-                f"{info_negocio['system_prompt']}\n\n"
-                f"DATOS DE CONTEXTO:\n"
-                f"- Estás hablando con: {nombre_cliente}.\n"
-                f"- Usa su nombre ocasionalmente para que la conversación sea cercana, pero no en cada frase."
-            )
-            prompt_sistema = prompt_final
+        # Enriquecer System Prompt
+        prompt_final = (
+            f"{prompt_sistema}\n\n"
+            f"DATOS DE CONTEXTO:\n"
+            f"- Estás hablando con: {nombre_cliente}.\n"
+        )
 
         logger.info(f"Ejecutando agente para thread_id: {thread_id}, business_id: {business_id}")
 
-        # Verificamos si ya existe un mensaje de sistema, si no, lo agregamos al inicio
-        mensajes = state["messages"]
+        # --- 2. FILTRADO INTELIGENTE Y RECONSTRUCCIÓN 🛡️ ---
+        mensajes_crudos = state["messages"]
+        mensajes_validos = []
         
-        # Opción A: Agregar siempre el System Prompt al principio de la lista para el LLM
-        # (No lo guardamos en la DB para no duplicarlo, solo lo usamos para invocar)
-        mensajes_con_contexto = [SystemMessage(content=prompt_sistema)] + mensajes
-        #logger.debug(f"contexto: {mensajes_con_contexto}")
-        # Intento 1: LLM primario
-        logger.debug("Intentando con LLM primario...")
+        TIPOS_CLASE_VALIDOS = (SystemMessage, HumanMessage, AIMessage, ToolMessage)
+
+        for m in mensajes_crudos:
+            # CASO A: Es un Objeto válido
+            if isinstance(m, TIPOS_CLASE_VALIDOS):
+                mensajes_validos.append(m)
+            
+            # CASO B: Es un Diccionario (Aquí estaba el problema)
+            elif isinstance(m, dict):
+                # Intentamos detectar qué es, mirando 'type' (LangChain) O 'role' (OpenAI)
+                tipo = m.get('type')
+                rol = m.get('role')
+                contenido = m.get('content', '')
+                
+                # Mapeo universal
+                if tipo == 'human' or rol == 'user':
+                    mensajes_validos.append(HumanMessage(content=contenido))
+                
+                elif tipo == 'ai' or rol == 'assistant' or rol == 'model':
+                    mensajes_validos.append(AIMessage(content=contenido))
+                
+                elif tipo == 'system' or rol == 'system':
+                    mensajes_validos.append(SystemMessage(content=contenido))
+                
+                elif tipo == 'tool' or rol == 'tool':
+                    t_id = m.get('tool_call_id') or m.get('id')
+                    mensajes_validos.append(ToolMessage(content=contenido, tool_call_id=t_id))
+                
+                else:
+                    logger.warning(f"🧹 Filtrando dict desconocido: type={tipo}, role={rol}")
+
+            else:
+                logger.warning(f"🧹 Filtrando objeto basura: {type(m)}")
+
+        # Verificación de seguridad: ¿Hay algo más que el System Prompt?
+        if not mensajes_validos:
+            logger.warning("⚠️ La lista de mensajes válidos está vacía. El LLM podría no responder.")
+
+        # Construimos el contexto final
+        mensajes_con_contexto = [SystemMessage(content=prompt_final)] + mensajes_validos
+        
+        # ----------------------------------------------------
+
+        logger.debug(f"Enviando {len(mensajes_con_contexto)} mensajes al LLM...")
+        
+        # Intento 1
         respuesta = llm_primary_with_tools.invoke(mensajes_con_contexto)
+        
+        # LOGS DE DIAGNÓSTICO
+        logger.debug(f"Respuesta Raw LLM: {respuesta.content}...")  # Loguear solo los primeros 200 caracteres
+        
         modelo_usado = respuesta.response_metadata.get('model_name', 'Desconocido')
         logger.success(f"🟩 Respuesta exitosa con modelo: {modelo_usado}.")
+        
     except Exception as e:
-        logger.warning(f"⚠️ Fallo LLM primario ({e}). Cambiando a LLM de respaldo...")
+        logger.warning(f"⚠️ Fallo LLM primario ({e}). Cambiando a respaldo...")
         try:
-            # Intento 2: LLM de respaldo
             respuesta = llm_backup_with_tools.invoke(mensajes_con_contexto)
-            modelo_usado = respuesta.response_metadata.get('model_name', 'Desconocido')
-            logger.success(f"▲ Recuperado exitosamente con modelo: {modelo_usado}.")
-            
         except Exception as e2:
-            logger.error(f"🔺 Fallo total del sistema: {e2}")
-            return {"status": "ERROR", "response": "No se pudo procesar su solicitud en este momento."}
+            logger.error(f"🔺 Fallo total: {e2}")
+            return {"messages": [AIMessage(content="Error técnico interno.")]}
+
     return {"messages": [respuesta]}
 
 
@@ -293,6 +341,52 @@ def _extraer_contenido_limpio(mensaje) -> str:
     return texto_final.strip()
 
 
+# Esta función extrae los contadores de tokens consumidos de forma segura y los imprime en el log.
+def _loguear_consumo_tokens(mensaje, thread_id):
+    """
+    Extrae y loguea el consumo de tokens de la respuesta del LLM.
+    """
+    try:
+        usage = None
+        
+        # 1. Intento estándar de LangChain (La mayoría de modelos actuales)
+        if hasattr(mensaje, 'usage_metadata') and mensaje.usage_metadata:
+            usage = mensaje.usage_metadata
+            
+        # 2. Intento específico para versiones viejas de Gemini/Vertex
+        elif hasattr(mensaje, 'response_metadata') and mensaje.response_metadata:
+            usage = mensaje.response_metadata.get('token_usage') or mensaje.response_metadata.get('usage_metadata')
+
+        if usage:
+            input_tokens = usage.get('input_tokens', 0)
+            output_tokens = usage.get('output_tokens', 0)
+            total_tokens = usage.get('total_tokens', 0)
+            
+            # Costo estimado para Gemini 1.5 Flash (aprox $0.075 / 1M input, $0.30 / 1M output)
+            # Ajusta estos valores según tu modelo exacto (Flash-Lite es aún más barato)
+            costo_estimado = (input_tokens * 0.000000075) + (output_tokens * 0.00000030)
+            
+            logger.info(
+                f"💰 TOKEN USAGE [{thread_id}]: "
+                f"In={input_tokens} | Out={output_tokens} | Total={total_tokens} | "
+                f"Costo Est: ${costo_estimado:.6f} USD"
+            )
+            return usage
+            
+    except Exception as e:
+        logger.warning(f"⚠️ No se pudo extraer métricas de tokens: {e}")
+    
+    return None
+
+# Tiempo máximo de espera de ejecucion de tool (ej: 5 minutos)
+TIEMPO_EXPIRACION_MINUTOS = 2
+
+# BANDERA DE COMPORTAMIENTO:
+# True  = Si el usuario habla, cancela la tool anterior y atiende lo nuevo.
+# False = Si el usuario habla, le dice "Espera" y bloquea el nuevo mensaje.
+PERMITIR_INTERRUPCION_USUARIO = True
+
+
 # ==================== 5. FUNCIÓN PÚBLICA (PARA FLASK) ====================
 def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
     """
@@ -302,23 +396,22 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
         conf_data = config.get('configurable', {})
         thread_id = conf_data.get('thread_id', 'unknown')
         business_id = conf_data.get('business_id', 'unknown')
-        client_name = conf_data.get('client_name', 'unknown')
         
         logger.info(f"Procesando msg. thread={thread_id}, business={business_id}")
 
-        aviso_timeout = ""  # <--- 1. Variable para guardar el aviso
+        aviso_timeout = ""
 
         with pool.connection() as conn:
             app = _obtener_app_activa(conn)
             
-            # --- LIMPIEZA DE ESTADOS VIEJOS ---
+            # --- 1. OBTENER ESTADO ACTUAL ---
             snapshot = app.get_state(config)
         
-            # 2. VERIFICAR SI HAY UNA TOOL PENDIENTE (EL PORTERO 🛡️)
+            # --- 2. EL PORTERO 🛡️ (Gestión de Interrupciones) ---
             if snapshot.next and "tools" in snapshot.next:
                 
-                # A. Verificamos si ya expiró (Tu lógica de timeout)
-                if snapshot.next and "tools" in snapshot.next and _es_estado_vencido(snapshot):
+                # CASO A: TIMEOUT (La espera caducó -> Limpiamos siempre)
+                if _es_estado_vencido(snapshot):
                     logger.info(f"🧹 Limpiando estado vencido para {thread_id}...")
                     try:
                         last_msg = snapshot.values["messages"][-1]
@@ -328,34 +421,53 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
                             
                             app.update_state(
                                 config,
-                                {"messages": [ToolMessage(tool_call_id=tool_call_id, content="Error: Timeout.")]},
+                                {"messages": [ToolMessage(tool_call_id=tool_call_id, content="Error: Timeout. El usuario tardó en responder.")]},
                                 as_node="tools"
                             )
-                            # <--- 2. Guardamos el aviso
-                            aviso_timeout = "⚠️ *Aviso:* La solicitud anterior caducó por inactividad.\n\n" 
-                            
+                            aviso_timeout = "⚠️ *Aviso:* La solicitud anterior caducó. He procesado tu nuevo mensaje:\n\n"
                     except Exception as e:
-                        logger.error(f"No se pudo limpiar: {e}")
+                        logger.error(f"🔴 No se pudo limpiar timeout: {e}")
                 
-                # B. Si NO ha expirado, BLOQUEAMOS al usuario
+                # CASO B: NO EXPIRÓ (El usuario interrumpe)
                 else:
-                    logger.info(f"⛔ Bloqueando mensaje de {thread_id}: Hay una aprobación pendiente vigente.")
-                    return {
-                        "status": "EN_ESPERA", # Un status nuevo para que no se mande a WhatsApp o se mande un aviso
-                        "response": "⏳ Todavía estoy esperando la confirmación de la acción anterior. Por favor, aguarda un momento."
-                    }
-            
-            # --- 2. INVOCAR AL AGENTE (DENTRO DEL WITH) ---
-            # El invoke debe ocurrir mientras la conexión sigue viva
+                    # AQUÍ USAMOS TU BANDERA 🚩
+                    if PERMITIR_INTERRUPCION_USUARIO:
+                        # OPCIÓN 1: Flexible (Cancela lo viejo, atiende lo nuevo)
+                        logger.info(f"🔄 Interrupción permitida en {thread_id}. Cancelando acción anterior...")
+                        try:
+                            last_msg = snapshot.values["messages"][-1]
+                            if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                                tool_call_id = last_msg.tool_calls[0]['id']
+                                from langchain_core.messages import ToolMessage
+                                
+                                app.update_state(
+                                    config,
+                                    {"messages": [ToolMessage(tool_call_id=tool_call_id, content=f"El usuario interrumpió la espera con: '{mensaje_usuario}'. CANCELA la acción anterior.")]},
+                                    as_node="tools"
+                                )
+                                # Dejamos fluir hacia abajo para que el invoke procese el nuevo mensaje
+                        except Exception as e:
+                            logger.error(f"🔴 Error gestionando interrupción: {e}")
+
+                    else:
+                        # OPCIÓN 2: Estricta (Bloquea al usuario)
+                        logger.info(f"⛔ Bloqueo estricto para {thread_id}: Hay aprobación pendiente.")
+                        return {
+                            "status": "EN_ESPERA",
+                            "response": "⏳ Todavía estoy esperando la confirmación de la acción anterior. Por favor, aguarda un momento o espera a que expire."
+                        }
+
+            # --- 3. INVOCAR AL AGENTE ---
+            # Si estaba en modo estricto, ya retornamos arriba y no llegamos aquí.
             result = app.invoke(
                 {"messages": [{"role": "user", "content": mensaje_usuario}]}, 
                 config=config
             )
             
-            # --- 3. VERIFICAR ESTADO FINAL (DENTRO DEL WITH) ---
+            # --- 4. VERIFICAR ESTADO FINAL ---
             snapshot = app.get_state(config)
             
-            # CASO A: HITL (Requiere aprobación)
+            # CASO HITL
             if snapshot.next and "tools" in snapshot.next:
                 if snapshot.values.get("messages"):
                     ultimo_mensaje = snapshot.values["messages"][-1]
@@ -368,45 +480,28 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
                             "message": f"Solicitando permiso para: {tool_call['name']}"
                         }
 
-            # CASO B: Respuesta final
+            # CASO RESPUESTA FINAL
             last_message = result["messages"][-1]
-            
-            # Usamos la función auxiliar que definimos antes
-            # (Asegúrate de que se llame igual que arriba, con o sin guion bajo)
+            _loguear_consumo_tokens(last_message, thread_id)
             texto_final = _extraer_contenido_limpio(last_message) 
-        
+
+            if aviso_timeout:
+                texto_final = aviso_timeout + texto_final
+
             return {
                 "status": "COMPLETADO",
                 "response": texto_final
             }
 
     except GraphRecursionError:
-        logger.error("Se alcanzó el límite de recursión.")
+        logger.error("🔴 Límite de recursión.")
         return {"status": "ERROR", "response": "Lo siento, me confundí. ¿Puedes preguntar de otra forma?"}
-        
     except Exception as e:
-        logger.error(f"Error CRÍTICO en procesar_mensaje: {e}")
-        return {"status": "ERROR", "response": "Ocurrió un error interno."}
-
-    except GraphRecursionError:
-        logger.error("🔴 Se alcanzó el límite de recursión.")
-        return {
-            "status": "ERROR",
-            "response": "Lo siento, me quedé pensando en un bucle. ¿Podrías reformular tu pregunta?"
-        }
-    except Exception as e:
-        logger.error(f"🔴 Error CRÍTICO en procesar_mensaje: {e}")
-        # Es útil imprimir el traceback en desarrollo
+        logger.error(f"🔴 Error CRÍTICO: {e}")
         import traceback
         traceback.print_exc() 
-        return {
-            "status": "ERROR", 
-            "response": "Ocurrió un error interno."
-        }
+        return {"status": "ERROR", "response": "Ocurrió un error interno."}
 
-
-# Tiempo máximo de espera de ejecucion de tool (ej: 5 minutos)
-TIEMPO_EXPIRACION_MINUTOS = 2
 
 # Se encarga de mirar el reloj y decidir si el estado actual es viejo.
 def _es_estado_vencido(snapshot) -> bool:
@@ -470,7 +565,7 @@ def ejecutar_aprobacion(thread_id: str, decision: str) -> dict:
             # app.update_state(config, {"messages": [ToolMessage(..., content="Error: Timeout")]}, as_node="tools")
             
             return {
-                "status": "ACCION_RECHAZADA",
+                "status": "ACCION_TIMEOUT",
                 "response": "⚠️ La solicitud de aprobación ha caducado por seguridad. Por favor, solicita la acción nuevamente."
             }
 
@@ -483,6 +578,8 @@ def ejecutar_aprobacion(thread_id: str, decision: str) -> dict:
             
             last_message = result["messages"][-1]
             
+            _loguear_consumo_tokens(last_message, thread_id)
+
             # --- CORRECCIÓN CRÍTICA AQUÍ ---
             
             # 1. Verificar si el bot quiere ejecutar OTRA herramienta (Tool Chaining)
@@ -504,17 +601,65 @@ def ejecutar_aprobacion(thread_id: str, decision: str) -> dict:
             # 2. Si no es tool, intentamos extraer texto
             texto_respuesta = _extraer_contenido_limpio(last_message)
             
-            # 3. Fallback final si realmente vino vacío y sin tools
+            # 3. Fallback final MEJORADO
             if not texto_respuesta:
-                texto_respuesta = "✅ Acción completada exitosamente (El sistema no generó comentarios adicionales)."
+                logger.warning("⚠️ LLM mudo. Buscando output de la tool...")
+                # Buscamos el último ToolMessage en el historial reciente
+                for msg in reversed(result["messages"]):
+                    if isinstance(msg, ToolMessage):
+                        texto_respuesta = f"✅ Acción completada. Resultado:\n{msg.content}"
+                        break
+                
+            # Si aún así falla
+            if not texto_respuesta:
+                texto_respuesta = "✅ Acción completada exitosamente."
 
             return {
                 "status": "ACCION_EJECUTADA", 
                 "response": texto_respuesta
             }
             
+        # --- RECHAZO CON BORRADO DE MEMORIA (MEN IN BLACK 🕶️) ---
         else:
-            return {"status": "ACCION_RECHAZADA", "response": "Acción cancelada."}
+            logger.info(f"🚫 Rechazando ejecución para {thread_id}...")
+            
+            # 1. Obtener el historial completo actual
+            snapshot = app.get_state(config)
+            mensajes_existentes = snapshot.values.get("messages", [])
+            
+            if mensajes_existentes:
+                logger.info(f"🧹 Iniciando borrado de {len(mensajes_existentes)} mensajes para reiniciar contexto...")
+                
+                instrucciones_borrado = []
+                
+                # 2. Iterar detectando si es Objeto o Diccionario
+                for m in mensajes_existentes:
+                    msg_id = None
+                    
+                    # CASO A: Es un Objeto (tiene atributo .id)
+                    if hasattr(m, 'id'):
+                        msg_id = m.id
+                    
+                    # CASO B: Es un Diccionario (tiene clave 'id')
+                    elif isinstance(m, dict):
+                        msg_id = m.get('id')
+                    
+                    # Solo agregamos la orden de borrado si encontramos un ID válido
+                    if msg_id:
+                        instrucciones_borrado.append(RemoveMessage(id=msg_id))
+                
+                # 3. Ejecutar el borrado masivo
+                if instrucciones_borrado:
+                    app.update_state(config, {"messages": instrucciones_borrado})
+                    logger.success("✨ Memoria reiniciada exitosamente.")
+                else:
+                    logger.warning("⚠️ No se encontraron IDs válidos para borrar.")
+
+            # 4. Retornar respuesta final
+            return {
+                "status": "ACCION_RECHAZADA", 
+                "response": "⛔ Solicitud cancelada. He reiniciado nuestra conversación. ¿En qué más puedo ayudarte?"
+            }
 
 
 # ==================== EJEMPLO DE USO LOCAL (TEST) ====================

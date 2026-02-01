@@ -47,6 +47,10 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
     # Detectar si el mensaje incluye botones
     is_button_message = isinstance(mensaje, dict) and mensaje.get('type') == 'button'
     
+    if not mensaje or not mensaje.strip():
+        logger.warning("⚠️ mensaje vacío detectado. Usando mensaje de fallback.")
+        mensaje = "👋 Hola, estoy aquí. ¿En qué te puedo ayudar hoy?"
+
     if is_button_message:
         # Evolution API usa formato especial para botones con URLs
         # Usamos sendText con el texto y agregamos el link al final
@@ -110,11 +114,11 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
                 return text
             # Continue trying next candidate on 4xx/5xx
         except Exception as e:
-            logger.exception("Exception when sending with candidate %s: %s", candidate, e)
+            logger.exception(f"Exception when sending with candidate {candidate}: {e}")
 
     # If none succeeded, return an informative structure
     msg_type = "button message" if is_button_message else "text message"
-    logger.error("🔴 All send attempts failed for number=%s (type=%s); tried=%s", numero, msg_type, candidates)
+    logger.error(f"🔴 All send attempts failed for number={numero} (type={msg_type}); tried={candidates}")
     return {"status": "failed", "tried": candidates, "message_type": msg_type}
 
 
@@ -131,7 +135,7 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
     """
     try:
         if not TRANSCRIPTION_ENABLED:
-            logger.warning("🟡 [AUDIO] Transcripción deshabilitada")
+            logger.warning("⚠️ [AUDIO] Transcripción deshabilitada")
             return None
         
         logger.info(f"[AUDIO] Iniciando transcripción de audio")
@@ -179,7 +183,7 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
             logger.debug(f"[AUDIO] Audio convertido a {mp3_path}")
             audio_path_to_use = mp3_path
         except Exception as conv_error:
-            logger.warning(f"🟡 [AUDIO] Error convirtiendo audio: {conv_error}, usando archivo original")
+            logger.warning(f"⚠️ [AUDIO] Error convirtiendo audio: {conv_error}, usando archivo original")
             audio_path_to_use = temp_audio_path
         
         # Transcribir según el proveedor
@@ -212,7 +216,7 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
             if audio_path_to_use != temp_audio_path and os.path.exists(audio_path_to_use):
                 os.unlink(audio_path_to_use)
         except Exception as e:
-            logger.warning(f"🟡 [AUDIO] Error limpiando archivos temporales: {e}")
+            logger.warning(f"⚠️ [AUDIO] Error limpiando archivos temporales: {e}")
         
         if transcription:
             logger.info(f"[AUDIO] Transcripción exitosa: {transcription[:100]}...")
@@ -327,10 +331,16 @@ def procesar_respuesta_LLM(respuesta, user_id, business_id, instance = None) -> 
         elif status == 'EN_ESPERA':
             executor.submit(enviar_mensaje_whatsapp, user_id, mensaje_bot, business_id, instance)
             pass
+        elif status == 'ACCION_RECHAZADA':
+            executor.submit(enviar_mensaje_whatsapp, user_id, mensaje_bot, business_id, instance)
+            pass
+        elif status == 'ACCION_TIMEOUT':
+            executor.submit(enviar_mensaje_whatsapp, user_id, mensaje_bot, business_id, instance)
+            pass
 
     except Exception as e:
         logger.error(f"🔴 Error procesando el JSON de respuesta: {e}")
-        logger.error(f"Contenido crudo: {respuesta.text}")
+        logger.error(f"🔴 Contenido crudo: {respuesta.text}")
         
 
 @app.route('/webhook', methods=['POST'])
@@ -370,7 +380,7 @@ def webhook():
             # if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
             #     puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
             #     if not puede_procesar:
-            #         logger.warning(f"🟡 DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
+            #         logger.warning(f"⚠️ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
             #         # NO enviar mensaje automático para prevenir loops
             #         return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
             
@@ -414,7 +424,7 @@ def webhook():
                     logger.info(f"[AUDIO] Procesando transcripción como mensaje de texto")
                     mensaje = transcripcion
                 else:
-                    logger.warning("🟡[AUDIO] No se pudo transcribir, enviando mensaje genérico")
+                    logger.warning("⚠️[AUDIO] No se pudo transcribir, enviando mensaje genérico")
                     # Enviar en background usando ThreadPool
                     executor.submit(
                         enviar_mensaje_whatsapp,
@@ -532,7 +542,7 @@ def borrar_memoria():
                     (thread_id,)
                 )
                 logger.info(f"Memoria borrada para thread_id={thread_id}")
-                
+
         return jsonify({
             "status": "MEMORIA_BORRADA", 
             "message": f"Historial eliminado para {thread_id}"

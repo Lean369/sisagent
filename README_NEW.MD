@@ -26,8 +26,14 @@ La configuración por defecto es de hasta 20 usuarios simultáneos procesando
 
 Ventajas de este enfoque
 - Escalable: pool = ConnectionPool(...) maneja múltiples usuarios a la vez sin saturar la base de datos.
-
 - Robusto: Si la conexión se cae, el pool intenta reconectar automáticamente.
+
+Configuraciones:
+- max_lifetime=600: Obliga al pool a tirar a la basura cualquier conexión que tenga más de 10 minutos de vida. Esto previene errores silenciosos que ocurren cuando una conexión vive "demasiado" (días).
+
+- max_idle=300: Si una conexión no se usa en 5 minutos, se cierra. La próxima vez que alguien pida una, el pool creará una nueva y fresca.
+
+- keepalives: Le dice al sistema operativo que envíe pequeños "pings" a la base de datos cada 30 segundos. Esto evita que los firewalls corten la conexión creyendo que está abandonada.
 
 ### Multi-tenancy
 
@@ -83,6 +89,10 @@ curl -X POST http://localhost:5000/aprobar \
   -H "Content-Type: application/json" \
   -d '{"thread_id":"nike_store:user123","decision":"approve"}'
 
+curl -X POST http://localhost:5000/aprobar \
+  -H "Content-Type: application/json" \
+  -d '{"business_id":"cliente2","user_id":"5491131376731@s.whatsapp.net","decision":"approve"}'
+
 {"response":"Tenemos varios modelos de zapatillas Nike disponibles, incluyendo Air Max, Air Force, Jordan, y m\u00e1s. \u00bfTe gustar\u00eda saber m\u00e1s sobre alguno de estos modelos en particular?","status":"ACCION_EJECUTADA"}
 
 curl -X POST http://localhost:5000/chat \
@@ -90,6 +100,10 @@ curl -X POST http://localhost:5000/chat \
   -d '{"message":"No, gracias ,  adios!","user_id":"user123","business_id":"nike_store"}'
 
 {"response":"\u00a1Hasta luego! Que tengas un buen d\u00eda y si necesitas algo m\u00e1s, no dudes en regresar. \u00a1Que te vaya bien!","status":"COMPLETADO"}
+
+curl -X POST http://localhost:5000/aprobar \
+  -H "Content-Type: application/json" \
+  -d '{"business_id":"cliente2","user_id":"5491131376731@s.whatsapp.net","decision":"reject"}'
   ```
 
 ## Borrado de memoria BD Postgres
