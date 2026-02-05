@@ -66,6 +66,9 @@ Sistema de agente conversacional inteligente que integra WhatsApp (vía Evolutio
 ### Pasos de Instalación
 
 ```bash
+# 0. Full
+cd /home/leanusr/sisagent && python3 -m venv .venv && ./.venv/bin/python -m pip install --upgrade pip setuptools wheel && ./.venv/bin/pip install -r requirements.txt
+
 # 1. Crear entorno virtual
 python3 -m venv venv
 source venv/bin/activate  # En Windows: venv\Scripts\activate
