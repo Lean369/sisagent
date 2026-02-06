@@ -11,6 +11,8 @@ from datetime import datetime
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
+import threading
+import time
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -229,7 +231,7 @@ def crear_lead_krayin(
                 "success": True,
                 "lead_id": lead_id,
                 "person_id": person_id,
-                "message": f"✅ Lead creado en Krayin CRM (ID: {lead_id}, Valor: ${lead_value})"
+                "message": f"Lead creado en Krayin CRM (ID: {lead_id}, Valor: ${lead_value})"
             }
         else:
             error_detail = response.json() if response.text else response.text
@@ -295,7 +297,7 @@ def crear_persona_krayin(nombre: str, telefono: str, email: str = "") -> Optiona
                     for contact in contact_numbers:
                         if contact.get('value') == telefono:
                             person_id = person.get('id')
-                            logger.info(f"[CRM] ✅ Persona ya existe - person_id={person_id}")
+                            logger.info(f"[CRM] Persona ya existe - person_id={person_id}")
                             return person_id
                 
                 logger.debug(f"[CRM] No se encontró persona con teléfono {telefono}")
@@ -416,7 +418,7 @@ def actualizar_lead_krayin(lead_id: str, stage_id: str, notas: str = "") -> Dict
             logger.info(f"[CRM] Lead actualizado exitosamente - lead_id={lead_id}")
             return {
                 "success": True,
-                "message": "✅ Lead actualizado en Krayin CRM"
+                "message": "Lead actualizado en Krayin CRM"
             }
         else:
             logger.error(f"❌ [CRM] Error al actualizar lead: status={response.status_code}, response={response.text}")
@@ -474,7 +476,7 @@ def actualizar_estado_lead_sheets(lead_id: str, nuevo_estado: str) -> Dict:
                 
                 return {
                     "success": True,
-                    "message": f"✅ Estado actualizado a '{nuevo_estado}' en Google Sheets"
+                    "message": f"Estado actualizado a '{nuevo_estado}' en Google Sheets"
                 }
         
         return {
@@ -571,10 +573,10 @@ def authorize_sheets():
     flow = InstalledAppFlow.from_client_secrets_file(
         GOOGLE_CREDENTIALS_FILE, SCOPES)
     
-    print("\n🔐 Autorización de Google Sheets")
-    print("=" * 50)
-    print("\nSe abrirá una ventana del navegador para autorizar.")
-    print("Si no se abre automáticamente, copia y pega la URL en tu navegador.\n")
+    logger.info("\n🔐 Autorización de Google Sheets")
+    logger.info("=" * 50)
+    logger.info("\nSe abrirá una ventana del navegador para autorizar.")
+    logger.info("Si no se abre automáticamente, copia y pega la URL en tu navegador.\n")
     
     creds = flow.run_local_server(port=8080, open_browser=True)
     
@@ -582,9 +584,9 @@ def authorize_sheets():
     with open('sheets_token.pickle', 'wb') as token:
         pickle.dump(creds, token)
     
-    print("\n✅ Autorización exitosa!")
-    print(f"Token guardado en: sheets_token.pickle")
-    print("\nAhora puedes reiniciar el agente: ./agent-manager.sh restart\n")
+    logger.info("\n✅ Autorización exitosa!")
+    logger.info(f"Token guardado en: sheets_token.pickle")
+    logger.info("\nAhora puedes reiniciar el agente: ./agent-manager.sh restart\n")
 
 
 def registrar_lead_en_sheets(
@@ -669,8 +671,8 @@ def registrar_lead_en_sheets(
         updates = append_result.get('updates') or {}
         updated_rows = updates.get('updatedRows', 0)
         if updated_rows > 0:
-            logger.info(f"[SHEETS] ✅ Lead registrado exitosamente - updatedRows={updated_rows}")
-            return {"success": True, "message": "✅ Lead registrado en Google Sheets", "details": append_result}
+            logger.info(f"[SHEETS] Lead registrado exitosamente - updatedRows={updated_rows}")
+            return {"success": True, "message": "Lead registrado en Google Sheets", "details": append_result}
         else:
             logger.warning(f"[SHEETS] Append completado pero no se detectaron filas actualizadas: {append_result}")
             return {"success": False, "message": "No se registró ninguna fila. Verifique permisos y existencia de la hoja 'Leads'.", "details": append_result}
@@ -683,6 +685,61 @@ def registrar_lead_en_sheets(
             "message": f"❌ Error al registrar en Google Sheets: {str(e)}"
         }
 
+
+def _tarea_pesada_background(user_lead_info):
+    """
+    Esta función se ejecuta en otro hilo. 
+    CRÍTICO: Como el LLM ya "cerró" la charla, tú tienes que avisar proactivamente al usuario que terminaste.
+    """
+    logger.info(f"🔄 [Background] Iniciando tarea pesada para thread_id: {user_lead_info.get('thread_id', 'desconocido')}...")
+
+    try:
+        if CRM_AUTO_REGISTER and KRAYIN_API_URL and KRAYIN_API_TOKEN:
+            try:
+                # Registrar lead en CRM
+                crm_resultado = registrar_lead_en_crm(user_lead_info)
+
+                if crm_resultado.get('success'):
+                    # Guardar el lead_id para futuras actualizaciones
+                    lead_id = crm_resultado.get('lead_id')
+                    user_lead_info['lead_id'] = lead_id
+                    logger.info(f"[CRM] Lead registrado exitosamente - lead_id={lead_id}")
+                else:
+                    logger.error(f"❌ [CRM] Fallo al registrar lead: {crm_resultado.get('error', 'Unknown error')}")
+
+            except Exception as e:
+                logger.exception(f"🔴 [CRM] Error al registrar lead: {e}")
+
+        # Registrar en Google Sheets si está habilitado (independiente del CRM)
+        if GOOGLE_SHEETS_ENABLED:
+            try:
+                # Extraer datos del diccionario
+                client_name = user_lead_info.get('nombre', 'Desconocido')
+                telefono = user_lead_info.get('telefono', '')
+                rubro = user_lead_info.get('rubro', '')
+                cantidad_mensajes = user_lead_info.get('volumen_mensajes', '0')
+                lead_id = user_lead_info.get('lead_id', '0')
+                
+                sheets_resultado = registrar_lead_en_sheets(
+                    nombre=client_name,
+                    telefono=telefono,
+                    email=telefono + '@example.com',
+                    empresa='',
+                    rubro=rubro,
+                    volumen_mensajes=str(cantidad_mensajes),
+                    lead_id=str(lead_id),
+                    estado="Cita Solicitada"
+                )
+                logger.info(f"[SHEETS] {sheets_resultado.get('message', 'Sin mensaje')}")
+            except Exception as e:
+                logger.exception(f"🔴 [SHEETS] Error al registrar lead: {e}")
+
+    except Exception as e:
+        logger.exception(f"🔴 [Background] Error en tarea pesada: {e}")
+
+    logger.info(f"✅ [Background] Tarea terminada.")
+
+
 # Herramienta principal para activar reservas y CRM
 class TriggerBookingToolInput(BaseModel):
     rubro: str = Field(description="El tipo de rubro (ej: peluquería, consultoría, fiambreria, ecommerce).")
@@ -692,7 +749,8 @@ class TriggerBookingToolInput(BaseModel):
 @tool(args_schema=TriggerBookingToolInput)
 def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableConfig) -> str:
     """Activa las herramientas de reserva y registro de leads
-    
+    Devuelve confirmación inmediata de link de cita y sigue trabajando en segundo plano con CRM y Sheets.
+
     Args:
         rubro: Rubro del negocio
         config: Configuración del runnable (incluye thread_id y client_name)
@@ -731,46 +789,25 @@ def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableCon
             'email': telefono + '@example.com',
             'lead_id': lead_id  # Se actualizará después de registrar en CRM
         }
+            
+        # Pasamos los argumentos necesarios en 'args'
+        hilo = threading.Thread(
+            target=_tarea_pesada_background,
+            args=(user_lead_info,),
+            daemon=False, # False asegura que termine aunque el request HTTP muera
+            name=f"BackgroundTask-{thread_id[:20]}"
+        )
         
-        if CRM_AUTO_REGISTER and KRAYIN_API_URL and KRAYIN_API_TOKEN:
-            try:
-                # Registrar lead en CRM
-                crm_resultado = registrar_lead_en_crm(user_lead_info)
-
-                if crm_resultado['success']:
-                    # Guardar el lead_id para futuras actualizaciones
-                    lead_id=crm_resultado['lead_id']
-                    user_lead_info['lead_id'] = lead_id
-                    logger.info(f"[CRM] Lead registrado exitosamente - lead_id={lead_id}")
-                else:
-                    logger.error(f"❌ [CRM] Fallo al registrar lead: {crm_resultado.get('error', 'Unknown error')}")
-
-            except Exception as e:
-                logger.exception(f"🔴 [CRM] Error al registrar lead: {e}")
-        
-        # Registrar en Google Sheets si está habilitado (independiente del CRM)
-        if GOOGLE_SHEETS_ENABLED:
-            try:
-                sheets_resultado = registrar_lead_en_sheets(
-                    nombre=client_name,
-                    telefono=telefono,
-                    email=telefono + '@example.com',
-                    empresa='',
-                    rubro=rubro,
-                    volumen_mensajes=str(cantidad_mensajes),
-                    lead_id=str(lead_id),
-                    estado="Cita Solicitada"
-                )
-                logger.info(f"[SHEETS] {sheets_resultado.get('message', 'Sin mensaje')}")
-            except Exception as e:
-                logger.exception(f"🔴 [SHEETS] Error al registrar lead: {e}")
-        
+        # 3. Iniciamos el hilo (esto no bloquea al código principal)
+        hilo.start()
+     
         logger.info(f"[BOOKING] Resultado de trigger_booking_tool: {resultado}")
         return resultado
         
     except Exception as e:
         logger.exception(f"🔴 Error en trigger_booking_tool: {e}")
         return "Lo siento, hubo un error al procesar tu reserva. Por favor intenta nuevamente."
+
 
 # --- EJEMPLO 1: Para la Pizzería ---
 class PedidoPizzaInput(BaseModel):

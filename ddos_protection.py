@@ -12,14 +12,14 @@ Capas de protección:
 
 import os
 import time
-import logging
+from loguru import logger
 from threading import Lock
+from dotenv import load_dotenv
 from collections import defaultdict, deque
 from typing import Optional, Tuple, Set
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(os.getenv('LOGGER_NAME', 'agent'))
-
+load_dotenv()
 
 class GlobalRateLimiter:
     """Rate limiter global para todo el sistema (no por usuario)"""
@@ -41,7 +41,7 @@ class GlobalRateLimiter:
             
             # Verificar límite
             if len(self.requests) >= self.max_requests:
-                logger.warning(f"GlobalRateLimiter: límite alcanzado ({len(self.requests)}/{self.max_requests})")
+                logger.warning(f"⚠️ GlobalRateLimiter: límite alcanzado ({len(self.requests)}/{self.max_requests})")
                 return False, "⚠️ El sistema está experimentando alta demanda. Por favor intenta en unos minutos."
             
             # Registrar request
@@ -88,7 +88,7 @@ class NewNumberDetector:
             if self.suspicious_mode:
                 if now < self.suspicious_until:
                     if number not in self.known_numbers:
-                        logger.warning(f"NewNumberDetector: número bloqueado en modo sospechoso: {number}")
+                        logger.warning(f"⚠️ NewNumberDetector: número bloqueado en modo sospechoso: {number}")
                         return False, "⚠️ Servicio temporalmente restringido. Intenta nuevamente en unos minutos."
                 else:
                     # Salir del modo sospechoso
@@ -110,12 +110,12 @@ class NewNumberDetector:
             if new_count >= self.suspicious_threshold:
                 self.suspicious_mode = True
                 self.suspicious_until = now + 300  # 5 minutos
-                logger.warning(f"NewNumberDetector: MODO SOSPECHOSO ACTIVADO - {new_count} números nuevos en 1 minuto")
+                logger.warning(f"⚠️ NewNumberDetector: MODO SOSPECHOSO ACTIVADO - {new_count} números nuevos en 1 minuto")
                 return False, "⚠️ Detectamos actividad inusual. Servicio temporalmente restringido."
             
             # Verificar límite de números nuevos
             if new_count >= self.max_new_numbers:
-                logger.warning(f"NewNumberDetector: límite de números nuevos alcanzado ({new_count}/{self.max_new_numbers})")
+                logger.warning(f"⚠️ NewNumberDetector: límite de números nuevos alcanzado ({new_count}/{self.max_new_numbers})")
                 return False, "⚠️ Demasiados números nuevos. Por favor intenta en unos minutos."
             
             # Registrar nuevo número
@@ -186,9 +186,9 @@ class CircuitBreaker:
             
             if self.failures >= self.failure_threshold:
                 self.state = "OPEN"
-                logger.error(f"CircuitBreaker: ABRIENDO CIRCUITO - {self.failures} fallos consecutivos")
+                logger.error(f"❌CircuitBreaker: ABRIENDO CIRCUITO - {self.failures} fallos consecutivos")
             else:
-                logger.warning(f"CircuitBreaker: fallo registrado ({self.failures}/{self.failure_threshold})")
+                logger.warning(f"⚠️CircuitBreaker: fallo registrado ({self.failures}/{self.failure_threshold})")
     
     def get_stats(self) -> dict:
         """Obtiene estadísticas"""
@@ -217,7 +217,7 @@ class NumberBlacklist:
                 return False, ""
             
             if number in self.blacklist:
-                logger.warning(f"NumberBlacklist: número bloqueado: {number}")
+                logger.warning(f"⚠️ NumberBlacklist: número bloqueado: {number}")
                 return True, "⚠️ Número bloqueado. Contacta con soporte."
             
             return False, ""
@@ -226,7 +226,7 @@ class NumberBlacklist:
         """Agrega un número a la blacklist"""
         with self.lock:
             self.blacklist.add(number)
-            logger.warning(f"NumberBlacklist: número agregado a blacklist: {number} (razón: {reason})")
+            logger.warning(f"⚠️ NumberBlacklist: número agregado a blacklist: {number} (razón: {reason})")
     
     def add_to_whitelist(self, number: str):
         """Agrega un número a la whitelist"""
@@ -234,7 +234,7 @@ class NumberBlacklist:
             self.whitelist.add(number)
             # Remover de blacklist si estaba
             self.blacklist.discard(number)
-            logger.info(f"NumberBlacklist: número agregado a whitelist: {number}")
+            logger.info(f"NumberWhitelist: número agregado a whitelist: {number}")
     
     def report_suspicious_behavior(self, number: str):
         """Reporta comportamiento sospechoso de un número"""
@@ -275,7 +275,7 @@ class DDoSProtection:
                 self.blacklist.add_to_whitelist(number)
                 logger.info(f"DDoSProtection: número del propietario en whitelist: {number}")
         
-        logger.info("DDoSProtection inicializado con todas las capas de protección")
+        logger.info("🛡️ DDoSProtection inicializado con todas las capas de protección")
     
     def puede_procesar(self, number: str) -> Tuple[bool, str]:
         """
@@ -362,4 +362,4 @@ if _enabled:
     )
 else:
     ddos_protection = None
-    logger.info('DDoSProtection deshabilitado por DDOS_PROTECTION_ENABLED=false')
+    logger.warning('⚠️ DDoSProtection deshabilitado por DDOS_PROTECTION_ENABLED=false')

@@ -21,6 +21,8 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
 
+from utilities import es_horario_laboral, obtener_nombres_dias
+
 # --- Imports de Herramientas ---
 from agente_metricas import loguear_consumo_tokens
 from crm_tools import (
@@ -43,8 +45,6 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "your_google_key")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "your_groq_key")
 
 # Configuración única de Logger con Loguru
-# Limpiar configuración por defecto para evitar duplicados
-# El ID 0 es el default. Si lo quitamos, len() será 0 al inicio.
 try:
     # Intentamos remover el default solo si es la primera vez
     logger.remove(0) 
@@ -81,7 +81,9 @@ def cargar_configuraciones():
         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         with open(config_path, 'r', encoding='utf-8') as f:
             configuraciones = json.load(f)
-        logger.info(f"✅ Configuraciones cargadas: {len(configuraciones)} negocios")
+        logger.info(f"Configuraciones cargadas: {len(configuraciones)} negocios")
+        for negocio_id, conf in configuraciones.items():
+            logger.info(f"Negocio ID: {negocio_id} | Nombre: {conf.get('nombre', 'N/A')} | Tools: {conf.get('tools_habilitadas', [])}")
         return configuraciones
     except Exception as e:
         logger.exception(f"🔴 Error cargando config_negocios.json: {e}")
@@ -152,6 +154,8 @@ with pool.connection() as conn:
     checkpointer_temp = PostgresSaver(conn)
     checkpointer_temp.setup()
 
+
+
 # ==============================================================================
 # 2. DEFINICIÓN DEL GRAFO MULTI-TENANT
 # ==============================================================================
@@ -173,10 +177,17 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     info_negocio = CONFIGURACIONES.get(business_id)
     prompt_sistema = info_negocio['system_prompt'] if info_negocio else "Eres un asistente útil."
     tools_nombres = info_negocio.get('tools_habilitadas', []) if info_negocio else []
-    
-    #mis_tools = TOOLS_POR_NEGOCIO.get(business_id, [])
+    fuera_de_servicio_activo = info_negocio.get('fuera_de_servicio', {}).get('activo', False) if info_negocio else False
+    horario_inicio = info_negocio.get('fuera_de_servicio', {}).get('horario_inicio', '09:00') if info_negocio else '09:00'
+    horario_fin = info_negocio.get('fuera_de_servicio', {}).get('horario_fin', '18:00') if info_negocio else '18:00'
+    dias_laborales = info_negocio.get('fuera_de_servicio', {}).get('dias_laborales', [1, 2, 3, 4, 5]) if info_negocio else [1, 2, 3, 4, 5]
+    logger.info(f"💼 Negocio: {business_id} | Thread: {thread_id} | dias laborales: {dias_laborales}"
+    )
+    if fuera_de_servicio_activo == True and es_horario_laboral(horario_inicio, horario_fin, dias_laborales) == False:
+        logger.info(f"⏰ Fuera de horario laboral para {business_id}. Respondiendo con mensaje de fuera de servicio.")
+        return {"messages": [AIMessage(content=f"⏰ Actualmente estamos fuera de servicio. Por favor, contáctanos de {horario_inicio} a {horario_fin}hs. ({obtener_nombres_dias(dias_laborales)}). ¡Gracias por tu comprensión! 👋")]}
 
-    # Convertir nombres de tools a objetos tool
+    # 3. Convertir nombres de tools a objetos tool
     mis_tools = []
     for tool_nombre in tools_nombres:
         if isinstance(tool_nombre, str) and tool_nombre in TOOLS_REGISTRY:

@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from agente import procesar_mensaje
+from ddos_protection import ddos_protection
 from loguru import logger
 import sys
 from agente import pool, workflow_builder # Importamos el builder, NO la app completa
@@ -21,6 +22,7 @@ executor = ThreadPoolExecutor(max_workers=10)  # CPU de 2 núcleos - 10 mensajes
 
 logger.info("🔄 Iniciando app Flask...")
 
+DDOS_PROTECTION_ENABLED = os.getenv("DDOS_PROTECTION_ENABLED", "true").lower() == "true"
 
 def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, instance_name: str = None):
     """Envía un mensaje a través de Evolution API.
@@ -89,7 +91,7 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
     for candidate in candidates:
         # Usar siempre sendText (Evolution API no tiene endpoint sendButtons separado)
         EVOLUTION_API_URL = os.environ.get("EVOLUTION_API_URL", "https://evoapi.sisnova.com.ar")
-        
+
         url = f"{EVOLUTION_API_URL}/message/sendText/{candidate}"
         endpoint_type = "sendText (with button link)" if is_button_message else "sendText"
         
@@ -105,6 +107,7 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
 
             logger.debug(f"[SND -> EVO] Tried {endpoint_type} with candidate={candidate} status={status} response={str(text)[:200]}")
 
+            # Llamar a findContacts para actualizar el contacto (si está habilitado)
             if os.environ.get("SEND_FIND_CONTACTS", "false").lower() == "true":
                 logger.debug(f"Attempting to call findContacts for candidate={candidate} and numero={numero}")
                 url2 = f"{EVOLUTION_API_URL}/chat/findContacts/{candidate}"
@@ -282,6 +285,26 @@ def extraer_datos_respuesta(respuesta):
         return None
 
     return None
+
+def worker_procesar_ia_y_enviar(business_id, user_id, mensaje, push_name, instance_id):
+    """
+    Función que corre en background:
+    1. Llama al Agente (Lento)
+    2. Envía la respuesta por WhatsApp (I/O)
+    """
+    try:
+        # 1. Proceso Lento (IA)
+        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name)
+        
+        # 2. Envío de respuesta
+        if respuesta_ia:
+            logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
+            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
+        else:
+            logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
+
+    except Exception as e:
+        logger.exception(f"🔴 Error en worker background para {user_id}: {e}")
         
 
 @app.route('/webhook', methods=['POST'])
@@ -318,12 +341,14 @@ def webhook():
             logger.info(f"🔔 {business_id}")
 
             # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
-            # if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
-            #     puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
-            #     if not puede_procesar:
-            #         logger.warning(f"⚠️ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
-            #         # NO enviar mensaje automático para prevenir loops
-            #         return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
+            if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
+                puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
+                if not puede_procesar:
+                    logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
+                    # NO enviar mensaje automático para prevenir loops
+                    return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
+                else:
+                    logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
             
             #[TEXTO] Procesar mensaje de texto normal
             if mensaje and user_id and not from_me:
@@ -403,7 +428,7 @@ def webhook():
                     # Procesar en background usando ThreadPool
                     # Esto NO bloquea el webhook, responde inmediatamente
                     executor.submit(enviar_mensaje_whatsapp, user_id, response, business_id, instance_name=msg.get('instance'))
-                    logger.info(f"✅ Mensaje encolado de {user_id} para envío en background")
+                    logger.info(f"✅ Mensaje enviado de {user_id} para envío en background")
                 else:
                     logger.info("[BOOKING] No se envía respuesta - conversación finalizada")
         
@@ -551,36 +576,6 @@ def aprobar():
         logger.exception(f"🔴 Error en aprobación: {e}")
         return jsonify({"error": str(e)}), 500
 
-
-# # Prueba rápida al iniciar el script directamente
-# logger.info("✅ Inicianda la app Flask...")
-# telefono_cliente = "5491112345678"
-
-# print("--- CASO 1: El cliente escribe a la Pizzería ---")
-# resp = procesar_mensaje(
-#     business_id="pizzeria_luigi",
-#     user_id=telefono_cliente, 
-#     mensaje_usuario="Hola, ¿qué venden?"
-# )
-# print(f"🍕 Bot Pizzería: {resp}\n")
-
-# print("--- CASO 2: El MISMO cliente escribe a Nike ---")
-# resp2 = procesar_mensaje(
-#     business_id="zapatillas_nike_outlet",
-#     user_id=telefono_cliente,
-#     mensaje_usuario="Hola, ¿qué venden?"
-# )
-# print(f"👟 Bot Nike: {resp2}\n")
-
-# print("--- CASO 3: Probando Memoria en Pizzería ---")
-# # El bot de pizza debería recordar que ya saludamos, pero no saber nada de zapatillas
-# resp3 = procesar_mensaje(
-#     business_id="pizzeria_luigi",
-#     user_id=telefono_cliente,
-#     mensaje_usuario="¿Tienen de ananá?"
-# )
-# print(f"🍕 Bot Pizzería: {resp3}")
-
     
 logger.info("✅ App Flask iniciada.")
 
@@ -590,11 +585,14 @@ if __name__ == '__main__':
         app.run(
             host='0.0.0.0',
             port=5000,
-            threaded=True,  # Importante: habilitar threading
+            threaded=True,  # Importante: es solo para desarrollo. En producción, usa Gunicorn
             debug=False    # Cambiar a False en producción
         )
     except Exception as e:
         logger.exception(f"🔴 Error de inicio a app: {e}")
+
+# En producción, es recomendable usar Gunicorn con workers y threads configurados para manejar la concurrencia de manera eficiente:
+# gunicorn -w 4 --threads 10 -b 0.0.0.0:5000 app:app
     #finally:
         # Detener scheduler al cerrar la aplicación
         # if scheduler:
