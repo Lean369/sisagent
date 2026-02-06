@@ -24,6 +24,7 @@ logger.info("🔄 Iniciando app Flask...")
 
 DDOS_PROTECTION_ENABLED = os.getenv("DDOS_PROTECTION_ENABLED", "true").lower() == "true"
 
+
 def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, instance_name: str = None):
     """Envía un mensaje a través de Evolution API.
     
@@ -123,7 +124,7 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
                 return text
             # Continue trying next candidate on 4xx/5xx
         except Exception as e:
-            logger.exception(f"Exception when sending with candidate {candidate}: {e}")
+            logger.error(f"Exception when sending with candidate {candidate}: {e}")
 
     # If none succeeded, return an informative structure
     msg_type = "button message" if is_button_message else "text message"
@@ -143,6 +144,10 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
         Texto transcrito o None si hay error
     """
     try:
+        TRANSCRIPTION_ENABLED = os.getenv("TRANSCRIPTION_ENABLED", "true").lower() == "true"
+        TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
         if not TRANSCRIPTION_ENABLED:
             logger.warning("⚠️ [AUDIO] Transcripción deshabilitada")
             return None
@@ -219,13 +224,12 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
             transcription = result["text"]
         
         # Limpiar archivos temporales
-        import os
         try:
             os.unlink(temp_audio_path)
             if audio_path_to_use != temp_audio_path and os.path.exists(audio_path_to_use):
                 os.unlink(audio_path_to_use)
         except Exception as e:
-            logger.exception(f"⚠️ [AUDIO] Error limpiando archivos temporales: {e}")
+            logger.error(f"⚠️ [AUDIO] Error limpiando archivos temporales: {e}")
         
         if transcription:
             logger.info(f"[AUDIO] Transcripción exitosa: {transcription[:100]}...")
@@ -235,209 +239,8 @@ def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]
             return None
             
     except Exception as e:
-        logger.exception(f"🔴 [AUDIO] Error transcribiendo audio: {e}")
+        logger.error(f"🔴 [AUDIO] Error transcribiendo audio: {e}")
         return None
-
-
-def extraer_datos_respuesta(respuesta):
-    """
-    Extrae datos de cualquier tipo de respuesta (Flask, Requests, Dict, String).
-    """
-    try:
-        logger.debug(f"🔍 Extrayendo datos de respuesta tipo: {type(respuesta)}")
-
-        # TIPO 1: Diccionario directo
-        if isinstance(respuesta, dict):
-            return respuesta
-
-        # TIPO 2: Objeto Response de Flask (El que te dio error)
-        if hasattr(respuesta, 'get_data'):
-            try:
-                # Leemos el texto crudo del cuerpo de la respuesta
-                texto_json = respuesta.get_data(as_text=True)
-                if texto_json:
-                    return json.loads(texto_json)
-            except Exception as e:
-                logger.exception(f"⚠️ Error leyendo data de Flask Response: {e}")
-
-        # TIPO 3: Objeto Response de Requests (HTTP externo)
-        if hasattr(respuesta, 'json'):
-            try:
-                if callable(respuesta.json):
-                    return respuesta.json()
-                else:
-                    return respuesta.json
-            except:
-                pass
-
-        # TIPO 4: Fallback genérico (Intentar leer atributo .text o .data)
-        texto_crudo = None
-        if hasattr(respuesta, 'text'): # Requests
-            texto_crudo = respuesta.text
-        elif hasattr(respuesta, 'data'): # Werkzeug bytes
-            texto_crudo = respuesta.data.decode('utf-8')
-            
-        if texto_crudo:
-            return json.loads(texto_crudo)
-
-    except Exception as e:
-        logger.exception(f"🔴 Error crítico extrayendo JSON: {e}")
-        return None
-
-    return None
-
-def worker_procesar_ia_y_enviar(business_id, user_id, mensaje, push_name, instance_id):
-    """
-    Función que corre en background:
-    1. Llama al Agente (Lento)
-    2. Envía la respuesta por WhatsApp (I/O)
-    """
-    try:
-        # 1. Proceso Lento (IA)
-        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name)
-        
-        # 2. Envío de respuesta
-        if respuesta_ia:
-            logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
-            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
-        else:
-            logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
-
-    except Exception as e:
-        logger.exception(f"🔴 Error en worker background para {user_id}: {e}")
-        
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
-
-    try:
-        payload = request.json
-        logger.debug("[RCV <- EVO] Received webhook payload: {}", json.dumps(payload)[:500])
-        
-        # Extraer información del mensaje de Evolution API
-        if payload.get('event') == 'messages.upsert':
-            mensaje_data = payload.get('data', {})
-            
-            # Intentar extraer mensaje de texto
-            mensaje = mensaje_data.get('message', {}).get('conversation') or \
-                     mensaje_data.get('message', {}).get('extendedTextMessage', {}).get('text', '')
-            
-            # Verificar si es un mensaje de audio
-            audio_message = mensaje_data.get('message', {}).get('audioMessage')
-            
-            # Verificar si es una imagen, video, documento u otro archivo
-            image_message = mensaje_data.get('message', {}).get('imageMessage')
-            video_message = mensaje_data.get('message', {}).get('videoMessage')
-            document_message = mensaje_data.get('message', {}).get('documentMessage')
-            sticker_message = mensaje_data.get('message', {}).get('stickerMessage')
-            
-            user_id = mensaje_data.get('key', {}).get('remoteJid', '')
-            from_me = mensaje_data.get('key', {}).get('fromMe', False)
-            push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
-
-            # Intentar obtener instance/id proporcionado en el webhook
-            business_id = payload.get('instance') or mensaje_data.get('instanceId') or None
-            logger.info(f"🔔 {business_id}")
-
-            # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
-            if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
-                puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
-                if not puede_procesar:
-                    logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
-                    # NO enviar mensaje automático para prevenir loops
-                    return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
-                else:
-                    logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
-            
-            #[TEXTO] Procesar mensaje de texto normal
-            if mensaje and user_id and not from_me:
-                mensaje_usuario = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name) 
-                
-                logger.info(f"Generated response for {user_id}: {str(mensaje_usuario)[:50]}")
-
-                executor.submit(enviar_mensaje_whatsapp, user_id, mensaje_usuario, business_id, payload.get('instance'))    
-            else:
-                logger.debug("No es mensaje de texto o es de 'from_me', saltando procesamiento de texto.")
-
-            # [MULTIMEDIA] Si es una imagen, video, documento o sticker, pedir que escriba texto
-            if (image_message or video_message or document_message or sticker_message) and not from_me and user_id:
-                tipo_archivo = "imagen" if image_message else \
-                               "video" if video_message else \
-                               "documento" if document_message else \
-                               "sticker"
-                
-                logger.info(f"Received {tipo_archivo.upper()} from {user_id} ({push_name}), requesting text message")
-                # Enviar en background usando ThreadPool
-                executor.submit(
-                    enviar_mensaje_whatsapp,
-                    user_id,
-                    f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝",
-                    business_id,
-                    payload.get('instance')
-                )
-                return {"status": "success"}
-            
-            # [AUDIO] Si es un mensaje de audio, transcribirlo
-            if audio_message and not from_me and user_id:
-                logger.info(f"Processing AUDIO message from {user_id} ({push_name})")
-                
-                # Extraer URL o base64 del audio
-                audio_url = audio_message.get('url', '')
-                audio_base64 = audio_message.get('base64', '')
-                
-                # Transcribir el audio
-                transcripcion = transcribir_audio(audio_url, audio_base64)
-                
-                if transcripcion:
-                    logger.info(f"[AUDIO] Procesando transcripción como mensaje de texto")
-                    mensaje = transcripcion
-                else:
-                    logger.warning("⚠️[AUDIO] No se pudo transcribir, enviando mensaje genérico")
-                    # Enviar en background usando ThreadPool
-                    executor.submit(
-                        enviar_mensaje_whatsapp,
-                        user_id,
-                        "Disculpa, recibí tu mensaje de audio pero tuve problemas para transcribirlo. ¿Podrías escribirlo como texto?",
-                        business_id,
-                        payload.get('instance')
-                    )
-                    return {"status": "success"}
-        
-        # [LISTA] Soporte alternativo para formato con lista de mensajes
-        for msg in payload.get("messages", []):
-            if msg.get("type") == "conversation":
-                user_id = msg["key"]["remoteJid"]
-                text = msg["message"]["conversation"]
-                from_me = msg["key"].get("fromMe", False)
-                push_name = msg.get('pushName', '') or msg.get('verifiedBizName', '')
-                
-                if text and user_id and not from_me:
-                    logger.info("Processing message type: LIST")
-
-                respuesta = adaptar_procesar_mensaje(business_id, user_id, text, client_name=push_name)            
-
-                executor.submit(enviar_mensaje_whatsapp, user_id, respuesta, business_id, payload.get('instance')) 
-                
-                logger.info(f"Generated response for {user_id}: {respuesta[:50]}")
-                    
-                # Solo enviar respuesta si no es None (conversación finalizada)
-                if respuesta is not None:
-                    # If the msg contains instance info, prefer it
-                    msg_instance = msg.get('instance') or msg.get('instanceId')
-                    # Procesar en background usando ThreadPool
-                    # Esto NO bloquea el webhook, responde inmediatamente
-                    executor.submit(enviar_mensaje_whatsapp, user_id, response, business_id, instance_name=msg.get('instance'))
-                    logger.info(f"✅ Mensaje enviado de {user_id} para envío en background")
-                else:
-                    logger.info("[BOOKING] No se envía respuesta - conversación finalizada")
-        
-        # Responder inmediatamente (sin esperar procesamiento)
-        return jsonify({"status": "accepted"}), 200
-    
-    except Exception as e:
-        logger.exception(f"🔴 Error en webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, client_name: str = "") -> str:
@@ -445,7 +248,8 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
     try:
         # 1. Datos obligatorios      
         if not user_id or not business_id or not mensaje:
-            return exception("Faltan IDs o mensaje"), 500
+            logger.error("Faltan IDs o mensaje en adaptar_procesar_mensaje")
+            return None # Retorna None o un string vacío para que el worker sepa que falló
 
         # 2. Crear Thread ID Único (Aislamiento de Memoria)
         # Esto asegura que Postgres guarde la conversación en un "cajón" único
@@ -482,8 +286,144 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
         return response
 
     except Exception as e:
-        logger.exception(f"🔴 Error: {e}") 
+        logger.error(f"🔴 Error: {e}") 
         return  "No se pudo procesar su solicitud."
+
+
+def worker_agente_ia_y_enviar(business_id, user_id, mensaje, push_name, instance_id):
+    """
+    Función que corre en background:
+    1. Llama al Agente (Lento)
+    2. Envía la respuesta por WhatsApp (I/O)
+    """
+    try:
+        # 1. Proceso Lento (IA)
+        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name)
+        
+        # 2. Envío de respuesta
+        if respuesta_ia:
+            logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
+            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
+        else:
+            logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
+            respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
+            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
+
+    except Exception as e:
+        logger.error(f"🔴 Error en worker background para {user_id}: {e}")
+
+
+def worker_procesar_audio(business_id, user_id, audio_url, audio_base64, push_name, instance_id):
+    try:
+        # 1. Transcribir (Lento)
+        texto_transcrito = transcribir_audio(audio_url, audio_base64)
+        
+        if texto_transcrito:
+            logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50]}...")
+            # 2. Reutilizamos el worker de texto existente para procesar con IA
+            worker_agente_ia_y_enviar(business_id, user_id, texto_transcrito, push_name, instance_id)
+        else:
+            msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
+            enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id=instance_id)
+
+    except Exception as e:
+        logger.error(f"🔴 Error procesando audio background: {e}")
+
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
+
+    try:
+        msg_id = "-"
+        payload = request.json
+        logger.debug("[RCV <- EVO] Received webhook payload: {}", json.dumps(payload)[:500])
+        
+        # Extraer información del mensaje de Evolution API
+        if payload.get('event') == 'messages.upsert':
+            mensaje_data = payload.get('data', {})
+            
+            # Intentar extraer mensaje de texto
+            mensaje = mensaje_data.get('message', {}).get('conversation') or \
+                     mensaje_data.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+            
+            # Verificar si es un audio, imagen, video, documento u otro archivo
+            audio_message = mensaje_data.get('message', {}).get('audioMessage')
+            image_message = mensaje_data.get('message', {}).get('imageMessage')
+            video_message = mensaje_data.get('message', {}).get('videoMessage')
+            document_message = mensaje_data.get('message', {}).get('documentMessage')
+            sticker_message = mensaje_data.get('message', {}).get('stickerMessage')
+            
+            user_id = mensaje_data.get('key', {}).get('remoteJid', '')
+            from_me = mensaje_data.get('key', {}).get('fromMe', False)
+            msg_id = mensaje_data.get('key', {}).get('id', '-')
+            push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
+
+            # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
+            business_id = payload.get('instance') or mensaje_data.get('instanceId') or None
+            logger.info(f"📨 Incomming message: {business_id} - ID: {msg_id}")
+
+            # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
+            if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
+                puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
+                if not puede_procesar:
+                    logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
+                    # NO enviar mensaje automático para prevenir loops
+                    return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
+                else:
+                    logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
+            
+            #[TEXTO] Procesar mensaje de texto normal
+            if mensaje and user_id and not from_me:
+                logger.info(f"Incomming TEXT message from {user_id} ({push_name})")
+                executor.submit(worker_agente_ia_y_enviar, business_id, user_id, mensaje, push_name, payload.get('instance'))    
+            else:
+                logger.debug("No es mensaje de texto o es de 'from_me', saltando procesamiento de texto.")
+
+            # [MULTIMEDIA] Si es una imagen, video, documento o sticker, pedir que escriba texto
+            if (image_message or video_message or document_message or sticker_message) and not from_me and user_id:
+                tipo_archivo = "imagen" if image_message else \
+                               "video" if video_message else \
+                               "documento" if document_message else \
+                               "sticker"
+                
+                logger.info(f"Incomming {tipo_archivo.upper()} from {user_id} ({push_name}), requesting text message..")
+                # Enviar en background usando ThreadPool
+                msg = f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+                executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, payload.get('instance'))
+            
+            # [AUDIO] Si es un mensaje de audio
+            if audio_message and not from_me and user_id:
+                logger.info(f"🔊 Recibido AUDIO de {user_id}. Procesando en background...")
+                audio_url = audio_message.get('url', '')
+                audio_base64 = audio_message.get('base64', '')
+                
+                # Enviamos TODO al fondo inmediatamente
+                executor.submit(worker_procesar_audio, business_id, user_id, audio_url, audio_base64, push_name, payload.get('instance'))
+        
+        # [LISTA] Soporte alternativo para formato con lista de mensajes
+        for msg in payload.get("messages", []):
+            if msg.get("type") == "conversation":
+                user_id = msg["key"]["remoteJid"]
+                text = msg["message"]["conversation"]
+                from_me = msg["key"].get("fromMe", False)
+                push_name = msg.get('pushName', '') or msg.get('verifiedBizName', '')
+                
+                if text and user_id and not from_me:
+                    logger.info(f"Processing LIST message from {user_id} ({push_name})")
+                    executor.submit(worker_agente_ia_y_enviar, business_id, user_id, text, push_name, payload.get('instance'))  
+                else:
+                    logger.warning("⚠️[LIST] No se pudo procesar, enviando mensaje genérico")
+                    msg = f"No pudimos procesar tu solicitud."
+                    executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, payload.get('instance'))
+        
+        # Responder inmediatamente (sin esperar procesamiento)
+        logger.debug(f"📤 Responding to webhook immediately with 200 OK - ID: {msg_id}")
+        return jsonify({"status": "accepted"}), 200
+    
+    except Exception as e:
+        logger.error(f"🔴 Error en webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # Endpoint para borrar memoria de un usuario específico
@@ -529,7 +469,7 @@ def borrar_memoria():
         })
 
     except Exception as e:
-        logger.exception(f"🔴 Error borrando DB: {e}")
+        logger.error(f"🔴 Error borrando DB: {e}")
         return jsonify({"error": "Error al borrar memoria"}), 500
 
 
@@ -546,7 +486,7 @@ def chat():
         return adaptar_procesar_mensaje(business_id, user_id, mensaje)
 
     except Exception as e:
-        logger.exception(f"🔴 Error: {e}") 
+        logger.error(f"🔴 Error: {e}") 
         return jsonify({"response": "No se pudo procesar su solicitud.", "status": "ERROR"}), 500
 
 
@@ -573,7 +513,7 @@ def aprobar():
         return jsonify({"status": "APROBACION_PROCESADA"})
 
     except Exception as e:
-        logger.exception(f"🔴 Error en aprobación: {e}")
+        logger.error(f"🔴 Error en aprobación: {e}")
         return jsonify({"error": str(e)}), 500
 
     

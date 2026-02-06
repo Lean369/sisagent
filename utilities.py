@@ -97,3 +97,51 @@ def obtener_nombres_dias(dias_laborales=[1, 2, 3, 4, 5]) -> str:
     except Exception as e:
         logger.warning(f"Error convirtiendo días laborales: {e}")
         return "días laborables"
+
+def extraer_datos_respuesta(respuesta):
+    """
+    Extrae datos de cualquier tipo de respuesta (Flask, Requests, Dict, String).
+    SIN USO
+    """
+    try:
+        logger.debug(f"🔍 Extrayendo datos de respuesta tipo: {type(respuesta)}")
+
+        # TIPO 1: Diccionario directo
+        if isinstance(respuesta, dict):
+            return respuesta
+
+        # TIPO 2: Objeto Response de Flask (El que te dio error)
+        if hasattr(respuesta, 'get_data'):
+            try:
+                # Leemos el texto crudo del cuerpo de la respuesta
+                texto_json = respuesta.get_data(as_text=True)
+                if texto_json:
+                    return json.loads(texto_json)
+            except Exception as e:
+                logger.exception(f"⚠️ Error leyendo data de Flask Response: {e}")
+
+        # TIPO 3: Objeto Response de Requests (HTTP externo)
+        if hasattr(respuesta, 'json'):
+            try:
+                if callable(respuesta.json):
+                    return respuesta.json()
+                else:
+                    return respuesta.json
+            except:
+                pass
+
+        # TIPO 4: Fallback genérico (Intentar leer atributo .text o .data)
+        texto_crudo = None
+        if hasattr(respuesta, 'text'): # Requests
+            texto_crudo = respuesta.text
+        elif hasattr(respuesta, 'data'): # Werkzeug bytes
+            texto_crudo = respuesta.data.decode('utf-8')
+            
+        if texto_crudo:
+            return json.loads(texto_crudo)
+
+    except Exception as e:
+        logger.exception(f"🔴 Error crítico extrayendo JSON: {e}")
+        return None
+
+    return None

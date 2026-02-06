@@ -148,12 +148,13 @@ logger.info(f"LLM Provider fallback: {LLM_PROVIDER_FALLBACK}")
 
 DB_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-pool = ConnectionPool(conninfo=DB_URI, min_size=1, max_size=10, kwargs={"autocommit": True})
+# Configuración del pool de conexiones a Postgres para el checkpointer de LangGraph
+# Soporta hasta 20 conexiones concurrentes (20 usuarios simultáneos). Ajustar según necesidades y recursos.
+pool = ConnectionPool(conninfo=DB_URI, min_size=1, max_size=20, kwargs={"autocommit": True})
 
 with pool.connection() as conn:
     checkpointer_temp = PostgresSaver(conn)
     checkpointer_temp.setup()
-
 
 
 # ==============================================================================
@@ -298,10 +299,9 @@ def obtener_todas_las_tools() -> dict:
         return []
 
 
-#tool_node = ToolNode(TODAS_LAS_TOOLS)
 tool_node = ToolNode(obtener_todas_las_tools(), handle_tool_errors=True)
 
-# Construcción del grafo
+# Construcción del grafo. Se define la estructura del grafo una vez y es inmutable durante la ejecución.
 workflow_builder = StateGraph(State)
 
 workflow_builder.add_node("chatbot", nodo_chatbot)
