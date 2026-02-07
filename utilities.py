@@ -1,11 +1,67 @@
 import os
+import json
 import time
 from datetime import datetime, timedelta
 from loguru import logger
 
+# ==============================================================================
+# 0. CARGAR CONFIGURACIONES DESDE JSON
+# ==============================================================================
+# Variables globales internas para caché
+_CONFIG_CACHE = {}
+_LAST_MTIME = 0
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
 
-def es_horario_laboral(horario_inicio, horario_fin, dias_laborales=[1, 2, 3, 4, 5]) -> bool:
+def obtener_configuraciones():
+    """
+    Retorna la configuración. Si el archivo cambió en disco, recarga automáticamente (hot reload).
+    """
+    global _CONFIG_CACHE, _LAST_MTIME
+
+    try:
+        # 1. Obtenemos la fecha de modificación actual del archivo
+        current_mtime = os.path.getmtime(_CONFIG_PATH)
+
+        # 2. Si la fecha es distinta a la última que leímos, recargamos
+        if current_mtime != _LAST_MTIME:
+            logger.info("🔄 Detectado cambio en config_negocios.json. Recargando...")
+            
+            with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                nuevas_configuraciones = json.load(f)
+            
+            # Validación simple (opcional)
+            if not isinstance(nuevas_configuraciones, dict):
+                raise ValueError("El JSON debe ser un diccionario.")
+
+            # Actualizamos caché y timestamp
+            _CONFIG_CACHE = nuevas_configuraciones
+            _LAST_MTIME = current_mtime
+            
+            logger.success(f"✅ Configuración recargada: {len(_CONFIG_CACHE)} negocios.")
+            
+            # (Opcional) Regenerar herramientas si cambian dinámicamente
+            # obtener_todas_las_tools() 
+
+        return _CONFIG_CACHE
+
+    except Exception as e:
+        logger.exception(f"🔴 Error leyendo config en caliente: {e}")
+        # En caso de error, devolvemos lo que teníamos antes para no romper la app
+        return _CONFIG_CACHE
+
+def es_horario_laboral(info_negocio) -> tuple[bool, str]:
     ahora = datetime.now()
+    logger.debug(f"⏰ Verificando horario laboral para negocio: {info_negocio}")
+    fuera_de_servicio_activo = info_negocio.get('fuera_de_servicio', {}).get('activo', False) if info_negocio else False
+    horario_inicio = info_negocio.get('fuera_de_servicio', {}).get('horario_inicio', '09:00') if info_negocio else '09:00'
+    horario_fin = info_negocio.get('fuera_de_servicio', {}).get('horario_fin', '18:00') if info_negocio else '18:00'
+    dias_laborales = info_negocio.get('fuera_de_servicio', {}).get('dias_laborales', [1, 2, 3, 4, 5]) if info_negocio else [1, 2, 3, 4, 5]
+    mensaje = info_negocio.get('fuera_de_servicio', {}).get('mensaje', []) if info_negocio else ''
+    logger.info(f"💼 Horario comercial: de {horario_inicio} a {horario_fin}hs. ({obtener_nombres_dias(dias_laborales)})")
+
+    if fuera_de_servicio_activo == False:
+        return True, ""  # Si no está activo el fuera de servicio, siempre es horario laboral
+
     # Parsear horas configuradas (formato HH:MM) y días (lista de números)
     try:
         start_hour = int(horario_inicio.split(':')[0])
@@ -27,7 +83,17 @@ def es_horario_laboral(horario_inicio, horario_fin, dias_laborales=[1, 2, 3, 4, 
     except Exception:
         allowed_weekdays = [0, 1, 2, 3, 4]
 
-    return (ahora.weekday() in allowed_weekdays) and (start_hour <= ahora.hour < end_hour)
+    if isinstance(mensaje, list):
+        mensaje_unido = ' '.join(mensaje)  # Une los strings con espacios
+    else:
+        mensaje_unido = mensaje
+
+    if mensaje_unido:
+        msg = mensaje_unido 
+    else:
+        msg = f"⏰ Actualmente estamos fuera de servicio. Por favor, contáctanos de {horario_inicio} a {horario_fin}hs. ({obtener_nombres_dias(dias_laborales)}). ¡Gracias por tu comprensión! 👋"
+    
+    return (ahora.weekday() in allowed_weekdays) and (start_hour <= ahora.hour < end_hour), msg
 
 
 def obtener_nombres_dias(dias_laborales=[1, 2, 3, 4, 5]) -> str:
@@ -95,8 +161,9 @@ def obtener_nombres_dias(dias_laborales=[1, 2, 3, 4, 5]) -> str:
             return ", ".join(dias_nombres_lista[:-1]) + f" y {dias_nombres_lista[-1]}"
             
     except Exception as e:
-        logger.warning(f"Error convirtiendo días laborales: {e}")
+        logger.exception(f"Error convirtiendo días laborales: {e}")
         return "días laborables"
+
 
 def extraer_datos_respuesta(respuesta):
     """

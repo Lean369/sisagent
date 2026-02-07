@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify
+from flask import Response
 from agente import procesar_mensaje
+from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
 from ddos_protection import ddos_protection
 from loguru import logger
 import sys
 from agente import pool, workflow_builder # Importamos el builder, NO la app completa
 from langgraph.checkpoint.postgres import PostgresSaver
+from langchain_core.messages import ToolMessage
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 import httpx
@@ -256,7 +259,7 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
         thread_id = f"{business_id}:{user_id}"
         
         # 3. Configuración para LangGraph
-        # Pasamos business_id dentro de 'configurable' para que el nodo lo pueda leer
+        # Pasamos dentro de 'configurable' toda la info de la conversación para que el nodo lo pueda leer
         config = {
             "configurable": {
                 "thread_id": thread_id,
@@ -279,6 +282,9 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
         if status == "COMPLETED" or status == "ERROR":
             logger.success(f"✅ Respuesta generada para {thread_id}: {str(response)[:50]}")
             return response
+        elif status == "PAUSED":
+            logger.warning(f"⏸️ Bot pausado para {thread_id}. No se generará respuesta.")
+            return ""  # Retornamos cadena vacía para indicar que no se debe enviar nada al cliente
         else:
             logger.warning(f"⚠️ Respuesta desconocida con status {status} para {thread_id}: {str(response)[:50]}")
             return  "⚠️ En este momento no puedo procesar su solicitud."
@@ -306,8 +312,8 @@ def worker_agente_ia_y_enviar(business_id, user_id, mensaje, push_name, instance
             enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
         else:
             logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
-            respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
-            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
+            #respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
+            #enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
 
     except Exception as e:
         logger.error(f"🔴 Error en worker background para {user_id}: {e}")
@@ -473,6 +479,55 @@ def borrar_memoria():
         return jsonify({"error": "Error al borrar memoria"}), 500
 
 
+@app.route('/reactivar_bot', methods=['POST'])
+def reactivar_bot():
+    """
+    Inserta un mensaje de sistema invisible para 'despertar' al bot
+    después de una intervención humana.
+    """
+    try:
+        logger.debug("[RCV <- WEB] Received Endpoint \"reactivar_bot\" payload: {}", request.data[:500])  
+        data = request.json
+        user_id = data.get('user_id')
+        business_id = data.get('business_id')
+        
+        if not user_id or not business_id:
+            return jsonify({"error": "Faltan IDs"}), 400
+
+        thread_id = f"{business_id}:{user_id}"
+        logger.info(f"🔄 Reactivando bot para {thread_id}")
+
+        # Inyectamos un mensaje "falso" de Tool o System que contenga la clave "BOT_REACTIVADO"
+        # Usamos ToolMessage para que sea consistente con la lógica de herramientas
+        mensaje_reactivacion = ToolMessage(
+            content="✅ ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO. El humano ha terminado la intervención. Puedes volver a responder.",
+            tool_call_id="admin_override_action"
+        )
+
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "business_id": business_id
+            }
+        }
+
+        with pool.connection() as conn:
+            checkpointer = PostgresSaver(conn)
+            # Usamos update_state para inyectar el mensaje sin ejecutar el LLM
+            # Esto simplemente agrega el mensaje al historial
+            workflow_builder.compile(checkpointer=checkpointer).update_state(
+                config,
+                {"messages": [mensaje_reactivacion]},
+                as_node="chatbot" # O el nodo que corresponda
+            )
+
+        return jsonify({"status": "BOT_REACTIVADO", "message": "El bot volverá a responder mensajes nuevos."})
+
+    except Exception as e:
+        logger.exception(f"🔴 Error reactivando bot: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
@@ -515,6 +570,25 @@ def aprobar():
     except Exception as e:
         logger.error(f"🔴 Error en aprobación: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/ver-grafo', methods=['GET'])
+def ver_grafo_png():
+    try:       
+        logger.info("Generando grafo de estados del agente para visualización...")
+        
+        # 1. Compilamos el grafo para poder dibujarlo
+        app_visual = workflow_builder.compile()
+
+        # 2. Generamos los bytes del PNG 
+        # (Esto usa la API de Mermaid automáticamente, no requiere configuración extra)
+        png_bytes = app_visual.get_graph().draw_mermaid_png()
+
+        # 3. Retornamos la imagen al navegador
+        return Response(png_bytes, mimetype='image/png')
+
+    except Exception as e:
+        return f"Error generando grafo: {str(e)}", 500
 
     
 logger.info("✅ App Flask iniciada.")

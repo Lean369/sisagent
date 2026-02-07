@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
+from utilities import obtener_configuraciones
+
 # Variables de configuración
 GOOGLE_BOOKING_URL = os.getenv('GOOGLE_BOOKING_URL', '')
 KRAYIN_API_URL = os.getenv('KRAYIN_API_URL', '')
@@ -35,30 +37,6 @@ CRM_AUTO_REGISTER = os.getenv('CRM_AUTO_REGISTER', 'true').lower() == 'true'
 GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'false').lower() == 'true'
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')
 GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
-
-try:
-    from external_instructions import BOOKING_MESSAGE
-    if  not BOOKING_MESSAGE:
-        raise ValueError("Faltan BOOKING_MESSAGE en external_instructions.py")
-except Exception as e:
-    logger.error(f"❌ Error importando external_instructions: {type(e).__name__}: {e}")
-
-    # Definiciones por defecto si falla la importación
-    BOOKING_MESSAGE = f"""
-    📅 *Agenda tu cita aquí* 
-    
-    Para reservar tu cita, haz clic en el siguiente enlace:
-    {GOOGLE_BOOKING_URL}
-    """
-
-
-def enviar_link_reserva(motivo: str = "") -> str:
-    logger.info(f"[BOOKING] Generando link de reserva - Motivo: {motivo or 'No especificado'}")
-    
-    mensaje = BOOKING_MESSAGE
-    
-    logger.info(f"[BOOKING] Link de reserva generado exitosamente")
-    return mensaje
 
 
 def enviar_link_reserva_botones(motivo: str = "") -> dict:
@@ -87,7 +65,7 @@ Haz clic en el link para acceder al calendario:""",
                 {
                     "type": "url",
                     "displayText": "📅 Reservar Cita",
-                    "url": GOOGLE_BOOKING_URL
+                    "url": "http://bit.ly/agenda-sisnova"  # Aquí puedes usar GOOGLE_BOOKING_URL si lo deseas
                 }
             ],
             "footer": "Sisnova - Atención 24/7"
@@ -765,7 +743,7 @@ def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableCon
     try:        
         # Accedemos al diccionario 'configurable'
         configuration = config.get('configurable', {})
-    
+        business_id = configuration.get('business_id', 'default_business')
         thread_id = configuration.get('thread_id', 'Valor no encontrado')
         client_name = configuration.get('client_name', 'Cliente de Prueba')
         # Extraer teléfono del formato: business_id:phone@s.whatsapp.net
@@ -775,8 +753,10 @@ def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableCon
         cantidad_mensajes = cantidad_mensajes if cantidad_mensajes else 0  # Simulado para testing
         lead_id = '0'  # Inicialmente sin lead_id
 
-        # Enviar link de reserva con botones
-        resultado = enviar_link_reserva()
+        # Enviar link de reserva con mensaje personalizado (esto es lo que ve el usuario inmediatamente)
+        config_actual = obtener_configuraciones() 
+        info_negocio = config_actual.get(business_id)
+        resultado = info_negocio['mensaje_usuario_1'] if info_negocio else "No se encontró información del negocio."
         
         # Registrar datos del lead para CRM y Google Sheets
         user_lead_info = {

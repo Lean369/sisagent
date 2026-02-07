@@ -20,16 +20,12 @@ from langchain_core.messages import ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
-
-from utilities import es_horario_laboral, obtener_nombres_dias
+from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configuraciones
 
 # --- Imports de Herramientas ---
 from agente_metricas import loguear_consumo_tokens
-from crm_tools import (
-    trigger_booking_tool,
-    consultar_stock,
-    ver_menu
-)
+from crm_tools import trigger_booking_tool, consultar_stock, ver_menu
+from hitl_tools import solicitar_atencion_humana
 
 # Cargar .env
 load_dotenv(override=True)
@@ -71,26 +67,6 @@ logger.add(
 
 logger.info("🚀 Iniciando la Agente AI...")
 
-# ==============================================================================
-# 0. CARGAR CONFIGURACIONES DESDE JSON
-# ==============================================================================
-
-def cargar_configuraciones():
-    """Carga las configuraciones de negocios desde config_negocios.json"""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            configuraciones = json.load(f)
-        logger.info(f"Configuraciones cargadas: {len(configuraciones)} negocios")
-        for negocio_id, conf in configuraciones.items():
-            logger.info(f"Negocio ID: {negocio_id} | Nombre: {conf.get('nombre', 'N/A')} | Tools: {conf.get('tools_habilitadas', [])}")
-        return configuraciones
-    except Exception as e:
-        logger.exception(f"🔴 Error cargando config_negocios.json: {e}")
-        return {}
-
-CONFIGURACIONES = cargar_configuraciones()
-
 
 # ==============================================================================
 # REGISTRO DE HERRAMIENTAS
@@ -99,7 +75,8 @@ CONFIGURACIONES = cargar_configuraciones()
 TOOLS_REGISTRY = {
     "consultar_stock": consultar_stock,
     "ver_menu": ver_menu,
-    "trigger_booking_tool": trigger_booking_tool
+    "trigger_booking_tool": trigger_booking_tool,
+    "solicitar_atencion_humana": solicitar_atencion_humana
 }
 
 # ==============================================================================
@@ -165,30 +142,58 @@ class State(TypedDict):
 
 
 # Prompting Dinámico "Zero-Storage". Se inyecta el SystemMessage al vuelo en la variable mensajes_entrada.
+# Recibe el estado anteror de la conversación (state) y la configuración del negocio (config) para decidir qué prompt, herramientas y puede devuelve un estado nuevo / actualizado
 # NO lo agrego al state para ahorrar tokens en la DB.
 # Si se cambia la configuración del negocio, se aplica inmediatamente.
 def nodo_chatbot(state: State, config: RunnableConfig):
-    # 1. Recuperar Configuración
+    # 1. Recuperar Configuración desde parámetro config (que viene de app.py)
     configurable = config.get("configurable", {})
     business_id = configurable.get("business_id", "default")
     nombre_cliente = configurable.get("client_name", "Cliente")
     thread_id = configurable.get("thread_id", "unknown_thread")
     
-    # 2. Setup del Prompt y Tools según negocio
-    info_negocio = CONFIGURACIONES.get(business_id)
-    prompt_sistema = info_negocio['system_prompt'] if info_negocio else "Eres un asistente útil."
-    tools_nombres = info_negocio.get('tools_habilitadas', []) if info_negocio else []
-    fuera_de_servicio_activo = info_negocio.get('fuera_de_servicio', {}).get('activo', False) if info_negocio else False
-    horario_inicio = info_negocio.get('fuera_de_servicio', {}).get('horario_inicio', '09:00') if info_negocio else '09:00'
-    horario_fin = info_negocio.get('fuera_de_servicio', {}).get('horario_fin', '18:00') if info_negocio else '18:00'
-    dias_laborales = info_negocio.get('fuera_de_servicio', {}).get('dias_laborales', [1, 2, 3, 4, 5]) if info_negocio else [1, 2, 3, 4, 5]
-    logger.info(f"💼 Negocio: {business_id} | Thread: {thread_id} | dias laborales: {dias_laborales}"
-    )
-    if fuera_de_servicio_activo == True and es_horario_laboral(horario_inicio, horario_fin, dias_laborales) == False:
-        logger.info(f"⏰ Fuera de horario laboral para {business_id}. Respondiendo con mensaje de fuera de servicio.")
-        return {"messages": [AIMessage(content=f"⏰ Actualmente estamos fuera de servicio. Por favor, contáctanos de {horario_inicio} a {horario_fin}hs. ({obtener_nombres_dias(dias_laborales)}). ¡Gracias por tu comprensión! 👋")]}
+    # 2. Recuperar Configuración desde archivo config_negocios.json
+    config_actual = obtener_configuraciones() 
+    info_negocio = config_actual.get(business_id)
+    if not info_negocio:
+        logger.error(f"🔴 No se encontró configuración para business_id: {business_id}.")
+        return {"messages": [AIMessage(content="No se encontró la configuración del negocio. Por favor, contacta al soporte.")]}
+    
+    logger.info(f"💼 Negocio: {business_id} | Thread: {thread_id}")
 
-    # 3. Convertir nombres de tools a objetos tool
+    # 3. Verificar horario laboral
+    en_horario, mensaje_fuera_horario = es_horario_laboral(info_negocio)
+    if not en_horario:
+        logger.info(f"⏰ Fuera de horario laboral para {business_id}. Respondiendo con mensaje de fuera de servicio.")
+        return {"messages": [AIMessage(content=mensaje_fuera_horario)]}
+
+    # ---------------------HITL------------------------------------
+    mensajes_historia = state["messages"]
+    bot_pausado = False
+    
+    # Escaneamos hacia atrás para ver el estado actual
+    for msg in reversed(mensajes_historia):
+        # 1. Si encontramos una señal de reactivación, el bot está ACTIVO
+        if "BOT_REACTIVADO" in str(msg.content):
+            bot_pausado = False
+            break
+            
+        # 2. Si encontramos la señal de derivación, el bot está PAUSADO
+        # Buscamos el string exacto que retorna tu tool 'solicitar_atencion_humana'
+        if isinstance(msg, ToolMessage) and "DERIVACION_EXITOSA_SILENCIO" in str(msg.content):
+            bot_pausado = True
+            break
+    
+    if bot_pausado:
+        logger.warning(f"⛔ Bot pausado para {business_id} (Derivación activa). Ignorando mensaje.")
+        # Retornamos una lista vacía o un mensaje nulo para detener el grafo
+        # Dependiendo de tu versión de LangGraph, esto puede requerir devolver un dict vacío
+        # o un mensaje especial.
+        return {"messages": []} 
+    # ---------------------------------------------------------
+
+    # 4. Convertir nombres de tools a objetos tool
+    tools_nombres = info_negocio.get('tools_habilitadas', []) if info_negocio else []
     mis_tools = []
     for tool_nombre in tools_nombres:
         if isinstance(tool_nombre, str) and tool_nombre in TOOLS_REGISTRY:
@@ -196,18 +201,24 @@ def nodo_chatbot(state: State, config: RunnableConfig):
         elif not isinstance(tool_nombre, str):
             mis_tools.append(tool_nombre) 
 
-    prompt_final = (
-        f"{prompt_sistema}\n\n"
+    prompt_sistema = info_negocio['system_prompt'] if info_negocio else "Eres un asistente útil."
+    if isinstance(prompt_sistema, list):
+        prompt_sistema_unido = "\n".join(prompt_sistema)  # Une los strings con saltos de línea
+    else:
+        prompt_sistema_unido = prompt_sistema
+
+    if len(nombre_cliente) > 3:
+        prompt_final = (
+        f"{prompt_sistema_unido}\n"
         f"DATOS DE CONTEXTO:\n"
         f"- Estás hablando con: {nombre_cliente}.\n"
-        #f"IMPORTANTE: Después de recibir el resultado de una herramienta, SIEMPRE genera una respuesta de texto explicativa."
-        # f"REGLAS DE RESPUESTA:\n"
-        # f"1. Si usas una herramienta, NO muestres el código Python ni tags como <tool_code>.\n"
-        # f"2. Solo muestra la respuesta natural y amigable para el usuario final.\n"
-        # f"3. IMPORTANTE: Después de recibir el resultado de una herramienta, SIEMPRE genera una respuesta de texto explicativa."
     )
-    
-    # 3. VINCULACIÓN DINÁMICA (Aquí ocurre la magia ✨)
+    else:
+        prompt_final = prompt_sistema_unido
+
+    #logger.debug(f"📝 Prompt final para {business_id}:\n{prompt_final}")
+
+    # 5. VINCULACIÓN DINÁMICA (Aquí ocurre la magia ✨)
     if mis_tools:
         # Creamos una instancia temporal del LLM que solo conoce estas tools
         llm_actual = llm_primary.bind_tools(mis_tools)
@@ -221,13 +232,13 @@ def nodo_chatbot(state: State, config: RunnableConfig):
         llm_backup_actual = llm_backup
         logger.info(f"ℹ️ No hay herramientas vinculadas para {business_id}")
     
-    # 4. Construir mensajes (System + Historia)
+    # 6. Construir mensajes (System + Historia)
     mensajes_entrada = [SystemMessage(content=prompt_final)] + state["messages"]
 
     logger.info(f"Ejecutando LLM para thread: {thread_id}")
     
     try:
-        # 5. Invocación
+        # 7. Invocación al LLM con manejo de errores interno (fallback a modelo backup)
         response_msg = llm_actual.invoke(mensajes_entrada)
         
         logger.success(f"Respuesta de llm_actual para {thread_id}: {response_msg.content[:200]}...")
@@ -268,7 +279,8 @@ def obtener_todas_las_tools() -> dict:
     try:
         # Recolectar todos los nombres de tools_habilitadas de cada negocio
         avalilable_tools = set()
-        for negocio_conf in CONFIGURACIONES.values():
+        config_actual = obtener_configuraciones() 
+        for negocio_conf in config_actual.values():
             if not isinstance(negocio_conf, dict):
                 continue
             tools_list = negocio_conf.get("tools_habilitadas", [])
@@ -309,7 +321,7 @@ workflow_builder.add_node("tools", tool_node) # Nodo ´tool_node´ es genérico 
 
 workflow_builder.set_entry_point("chatbot")
 
-# Lógica condicional: Si el chatbot pide tool -> va a 'tools', si no -> END
+# Lógica condicional (creación de aristas): Si el chatbot pide tool -> va a 'tools', si no -> END
 workflow_builder.add_conditional_edges(
     "chatbot",
     tools_condition
@@ -338,47 +350,46 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
             
             # Ejecución
             result = app.invoke(inputs, config=config)
+            #display(Image(app.get_graph().draw.png()))  # Visualizar el grafo (opcional, para debugging)
+
             mensajes = result.get("messages", [])
+
+            # 1. Validación básica de mensajes vacíos
+            if not mensajes: 
+                return {"status": "PAUSED", "response": ""}
+
+            ultimo_mensaje = mensajes[-1]
+            contenido_final = ultimo_mensaje.content
+
+            # --- CORRECCIÓN AQUÍ ---
+            # En lugar de mirar solo el último mensaje, miramos si la señal apareció 
+            # en CUALQUIER parte de la ejecución reciente (en la Tool o en el AI).
             
-            # --- LÓGICA DE RECUPERACIÓN DE RESPUESTA ---
+            se_debe_silenciar = False
             
-            # 1. Definir el turno actual (lo que pasó después de que el humano habló)
-            indices_humanos = [i for i, m in enumerate(mensajes) if isinstance(m, HumanMessage)]
-            if indices_humanos:
-                ultimo_humano = indices_humanos[-1]
-                mensajes_turno = mensajes[ultimo_humano+1:]
-            else:
-                mensajes_turno = mensajes
-
-            respuesta_final = ""
-
-            # 2. Buscar hacia atrás el primer contenido útil
-            for msg in reversed(mensajes_turno):
+            for msg in reversed(mensajes):
+                contenido = str(msg.content)
                 
-                # A. Mensaje de IA con texto (Ideal)
-                if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
-                    respuesta_final = msg.content
-                    break
+                # 1. Si encontramos la señal de REACTIVACIÓN primero, el bot está VIVO.
+                # Rompemos el ciclo inmediatamente porque lo que pasó antes ya no importa.
+                if "BOT_REACTIVADO" in contenido:
+                    se_debe_silenciar = False
+                    logger.info(f"🟢 Señal de reactivación encontrada para {thread_id}. Permitiendo respuesta.")
+                    break 
                 
-                # B. Si la IA no habló, ¿hay un error explícito de tool?
-                if isinstance(msg, ToolMessage) and "error" in str(msg.content).lower():
-                    respuesta_final = f"Tuve un problema técnico al consultar: {msg.content}"
+                # 2. Si encontramos la señal de SILENCIO primero, el bot sigue PAUSADO.
+                if "DERIVACION_EXITOSA_SILENCIO" in contenido:
+                    se_debe_silenciar = True
+                    logger.warning(f"⛔ Señal de silencio encontrada (y es la más reciente) para {thread_id}.")
                     break
 
-            # 3. Fallback: Si la IA ejecutó la tool pero devolvió vacío
-            if not respuesta_final:
-                hubo_tools = any(isinstance(m, ToolMessage) for m in mensajes_turno)
-                if hubo_tools:
-                    # Si hubo tools, significa que la acción se hizo.
-                    # Asumimos éxito si no hubo error, pero avisamos que no hay texto.
-                    respuesta_final = "✅ He consultado la información. (El asistente procesó la orden pero no generó texto de respuesta)."
-                    logger.warning("⚠️ La IA ejecutó tools pero devolvió respuesta vacía.")
-                else:
-                    respuesta_final = "Lo siento, no pude generar una respuesta."
-
+            if se_debe_silenciar:
+                return {"status": "PAUSED", "response": ""}
+            
+            # 4. Retorno normal
             return {
                 "status": "COMPLETED",
-                "response": respuesta_final
+                "response": contenido_final
             }
 
     except Exception as e:
