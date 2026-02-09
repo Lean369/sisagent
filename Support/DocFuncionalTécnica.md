@@ -55,7 +55,7 @@ graph TD
 
 5. Base de Datos (PostgreSQL): Almacena el historial de chat y los "Checkpoints" del grafo para persistencia entre sesiones.
 
-## 3. Funcionalidades Clave
+## 3. Funcionalidades y herramientas Clave
 
 ### A) Procesamiento Asíncrono ("Fire and Forget")
 Para evitar timeouts de WhatsApp y soportar múltiples usuarios simultáneos:
@@ -72,7 +72,7 @@ Para evitar timeouts de WhatsApp y soportar múltiples usuarios simultáneos:
 
 - Aislamiento: El sistema soporta múltiples negocios (cliente1, cliente2) con configuraciones, prompts y herramientas totalmente independientes, cargadas dinámicamente desde config_negocios.json.
 
-### C) Human-in-the-Loop (HITL) - Protocolo de Derivación
+### C) Human-in-the-Loop (HITL) - Herramienta de Derivación
 
 Protocolo robusto de derivación a humanos con seguridad y fail-safes:
 
@@ -107,6 +107,15 @@ TTL Configurable: Cada negocio define su tiempo de vida de sesión (ej. 60 min).
 Verificación Perezosa: Al llegar un mensaje nuevo, se calcula la antigüedad del último checkpoint.
 
 Olvido Selectivo: Si el tiempo expiró, el sistema borra la memoria de corto plazo y el LLM inicia una nueva conversación "fresca", evitando alucinaciones con contextos antiguos.
+
+### G) Sistema RAG (Retrieval-Augmented Generation)
+Permite al agente consultar una base de conocimientos específica del negocio para respuestas más precisas sin sobrecargar el prompt del sistema.
+
+- Embeddings: Convierten texto (tu PDF) en listas de números (vectores) que representan el significado a través del script de ingesta ingest_knowledge.py el cual crea una memoria vectorial local con ChromaDB.
+
+- Vector Store: Base de datos ChromaDB donde guardan los vectores y sus metadatos (ej. página del PDF).
+
+- RAG: El proceso de buscar en esa base y dárselo al LLM.
 
 ## 4. Flujos de Datos (Workflows)
 

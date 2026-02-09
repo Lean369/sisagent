@@ -18,3 +18,7 @@ psycopg[binary]>=3.2.0
 langgraph-checkpoint-postgres
 google-api-python-client==2.116.0
 PyJWT==2.8.0
+#Quitarlos para producción, solo para desarrollo local
+langchain-chroma
+pypdf
+tiktoken

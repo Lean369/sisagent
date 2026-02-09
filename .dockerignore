@@ -7,6 +7,8 @@ __pycache__
 .git
 .gitignore
 .DS_Store
+chroma_db/
+documentos_negocio/
 
 # Data, models and runtime files
 data/

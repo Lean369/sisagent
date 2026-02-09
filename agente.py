@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Annotated, TypedDict, List
 import operator
 from dotenv import load_dotenv
@@ -21,13 +22,13 @@ from langchain_core.messages import ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
-from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configuraciones, gestionar_expiracion_sesion
 
 # --- Imports de Herramientas ---
-from crm_tools import trigger_booking_tool, consultar_stock, ver_menu
-from hitl_tools import solicitar_atencion_humana
+from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configuraciones, gestionar_expiracion_sesion
+from tools_crm import trigger_booking_tool, consultar_stock, ver_menu
+from tools_hitl import solicitar_atencion_humana
+from tools_rag import consultar_base_conocimiento
 from analytics import registrar_evento
-import time
 
 # Cargar .env
 load_dotenv(override=True)
@@ -78,7 +79,8 @@ TOOLS_REGISTRY = {
     "consultar_stock": consultar_stock,
     "ver_menu": ver_menu,
     "trigger_booking_tool": trigger_booking_tool,
-    "solicitar_atencion_humana": solicitar_atencion_humana
+    "solicitar_atencion_humana": solicitar_atencion_humana,
+    "consultar_base_conocimiento": consultar_base_conocimiento
 }
 
 # ==============================================================================

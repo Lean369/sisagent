@@ -1,4 +1,47 @@
 {
+  "cliente6": {
+    "nombre": "VLShoes",
+    "ttl_sesion_minutos": 60,
+    "admin_phone": "5491131376731",
+    "fuera_de_servicio": {
+      "activo": false,
+      "horario_inicio": "22:00",
+      "horario_fin": "09:00",
+      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "zona_horaria": "America/Argentina/Buenos_Aires",
+      "mensaje": []
+    },
+    "system_prompt": ["Eres un experto vendedor de zapatos de mujer de VLShoes.",
+    "Tu objetivo es vender, pero sin ser molesto.",
+    "REGLAS IMPORTANTES:",
+    "1. Usa la herramienta 'consultar_base_conocimiento' SOLO si el usuario pide explícitamente un producto.",
+    "2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.",
+    "3. No asumas qué producto quiere el usuario si no lo ha mencionado."],
+    "mensaje_HITL": "",
+    "mensaje_usuario_1": [],
+    "tools_habilitadas": ["consultar_base_conocimiento"]
+  },
+  "cliente2": {
+    "nombre": "Soporte IT Start",
+    "ttl_sesion_minutos": 60,
+    "admin_phone": "5491131376731",
+    "fuera_de_servicio": {
+      "activo": false,
+      "horario_inicio": "22:00",
+      "horario_fin": "09:00",
+      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "zona_horaria": "America/Argentina/Buenos_Aires",
+      "mensaje": []
+    },
+    "system_prompt": ["Eres un experto en soporte IT de ATMs",
+    "Tu objetivo es ayudar a resolver problemas técnicos y suministrar información sobre los productos, pero sin ser molesto.",
+    "REGLAS IMPORTANTES:",
+    "1. Usa la herramienta 'consultar_base_conocimiento' cuando necesites obtener información técnica específica sobre los productos o servicios.",
+    "2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS."],
+    "mensaje_HITL": "",
+    "mensaje_usuario_1": [],
+    "tools_habilitadas": ["consultar_base_conocimiento"]
+  },
   "cliente1": {
     "nombre": "Nike Store Palermo",
     "ttl_sesion_minutos": 60,
@@ -11,12 +54,15 @@
       "zona_horaria": "America/Argentina/Buenos_Aires",
       "mensaje": []
     },
-    "system_prompt": "Eres un experto vendedor de Nike. Tu objetivo es vender, pero sin ser molesto.\nREGLAS IMPORTANTES:\n1. Usa la herramienta 'consultar_inventario' SOLO si el usuario pide explícitamente un producto.\n2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.\n3. No asumas qué producto quiere el usuario si no lo ha mencionado.",
+    "system_prompt": ["Eres un experto vendedor de Nike. Tu objetivo es vender, pero sin ser molesto.",
+    "\nREGLAS IMPORTANTES:\n1. Usa la herramienta 'consultar_inventario' SOLO si el usuario pide explícitamente un producto.",
+    "\n2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.",
+    "\n3. No asumas qué producto quiere el usuario si no lo ha mencionado."],
     "mensaje_HITL": "",
     "mensaje_usuario_1": [],
     "tools_habilitadas": []
   },
-  "cliente2": {
+  "cliente3": {
     "nombre": "Luigi's Pizza",
     "ttl_sesion_minutos": 6,
     "admin_phone": "5491131376731",
