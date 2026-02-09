@@ -17,3 +17,4 @@ langchain-postgres>=0.0.12
 psycopg[binary]>=3.2.0
 langgraph-checkpoint-postgres
 google-api-python-client==2.116.0
+PyJWT==2.8.0

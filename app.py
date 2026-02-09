@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask import Response
 from agente import procesar_mensaje
+from hitl_tools import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
 from ddos_protection import ddos_protection
 from loguru import logger
@@ -479,21 +480,9 @@ def borrar_memoria():
         return jsonify({"error": "Error al borrar memoria"}), 500
 
 
-@app.route('/reactivar_bot', methods=['POST'])
-def reactivar_bot():
-    """
-    Inserta un mensaje de sistema invisible para 'despertar' al bot
-    después de una intervención humana.
-    """
+def ejecutar_reactivar_bot(business_id: str, user_id: str):
+    """Función para ejecutar la reactivación del bot. Se puede llamar desde un script o tarea programada."""
     try:
-        logger.debug("[RCV <- WEB] Received Endpoint \"reactivar_bot\" payload: {}", request.data[:500])  
-        data = request.json
-        user_id = data.get('user_id')
-        business_id = data.get('business_id')
-        
-        if not user_id or not business_id:
-            return jsonify({"error": "Faltan IDs"}), 400
-
         thread_id = f"{business_id}:{user_id}"
         logger.info(f"🔄 Reactivando bot para {thread_id}")
 
@@ -521,7 +510,74 @@ def reactivar_bot():
                 as_node="chatbot" # O el nodo que corresponda
             )
 
-        return jsonify({"status": "BOT_REACTIVADO", "message": "El bot volverá a responder mensajes nuevos."})
+        logger.info(f"Bot reactivado exitosamente para {thread_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"🔴 Error ejecutando reactivación del bot: {e}")
+        return False
+
+
+@app.route('/reactivar_bot_web', methods=['GET'])
+def reactivar_bot_web():
+    """
+    Reactiva al bot mediante Token Seguro (JWT).
+    Uso: /reactivar_bot?token=eyJ...
+    """
+    token = request.args.get('token')
+    
+    if not token:
+        return "❌ Error: Falta el token de seguridad.", 400
+    try:
+        # 1. Decodificar y Validar (Si esto pasa, los datos son auténticos)
+        business_id, user_id = decodificar_token_reactivacion(token)
+        
+        thread_id = f"{business_id}:{user_id}"
+        
+        # 2. Lógica de Reactivación (Igual que antes)
+        logger.info(f"🔓 Token validado. Reactivando {thread_id}")
+
+        if ejecutar_reactivar_bot(business_id, user_id):
+            return f"""
+            <html>
+                <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h1 style="color: green;">✅ Bot Reactivado</h1>
+                    <p>El cliente <b>{user_id}</b> ya puede hablar con la IA nuevamente.</p>
+                    <p>Thread ID: {thread_id}</p>
+                    <button onclick="window.close()">Cerrar pestaña</button>
+                </body>
+            </html>
+            """, 200
+        else:
+            return jsonify({"error": "Error al reactivar el bot"}), 500
+
+    except ValueError as ve:
+        # Error de token expirado o inválido
+        return f"<html><body style='text-align:center; color:red;'><h1>⛔ Enlace Inválido</h1><p>{str(ve)}</p></body></html>", 403
+    except Exception as e:
+        logger.exception(f"🔴 Error reactivando bot: {e}")
+        return "Error interno del servidor", 500
+
+
+@app.route('/reactivar_bot', methods=['POST'])
+def reactivar_bot():
+    """
+    Inserta un mensaje de sistema invisible para 'despertar' al bot
+    después de una intervención humana.
+    """
+    try:
+        logger.debug("[RCV <- WEB] Received Endpoint \"reactivar_bot\" payload: {}", request.data[:500])  
+        data = request.json
+        user_id = data.get('user_id')
+        business_id = data.get('business_id')
+        
+        if not user_id or not business_id:
+            return jsonify({"error": "Faltan IDs"}), 400
+
+        if ejecutar_reactivar_bot(business_id, user_id):
+            return jsonify({"status": "BOT_REACTIVADO", "message": "El bot volverá a responder mensajes nuevos."})
+        else:
+            return jsonify({"error": "Error al reactivar el bot"}), 500
 
     except Exception as e:
         logger.exception(f"🔴 Error reactivando bot: {e}")
@@ -544,31 +600,113 @@ def chat():
         logger.error(f"🔴 Error: {e}") 
         return jsonify({"response": "No se pudo procesar su solicitud.", "status": "ERROR"}), 500
 
+from datetime import datetime, timedelta
 
-@app.route('/aprobar', methods=['POST'])
-def aprobar():
-    """Endpoint para recibir aprobaciones de usuarios humanos."""
-    try:     
-        logger.debug("[RCV <- WEB] Received Endpoint \"aprobar\" payload: {}", request.data[:500])  
-        data = request.json
+@app.route('/api/metrics', methods=['GET'])
+def get_business_metrics():
+    """
+    Endpoint para obtener métricas agregadas de un negocio.
+    Params:
+        - business_id (obligatorio)
+        - start_date (opcional, YYYY-MM-DD)
+        - end_date (opcional, YYYY-MM-DD)
+    """
+    try:
+        # 1. Obtener parámetros
+        business_id = request.args.get('business_id')
+        start_date_str = request.args.get('start_date')
+        end_date_str = request.args.get('end_date')
 
-        business_id = data.get('business_id')
-        user_id = data.get('user_id')
-        decision = data.get('decision') # "approve" o "reject"
-        
-        thread_id = f"{business_id}:{user_id}"
+        if not business_id:
+            return jsonify({"error": "Falta el parámetro 'business_id'"}), 400
 
-        logger.info(f"Received approval request for thread_id={thread_id} with decision={decision}")
+        # 2. Definir rango de fechas (Default: últimos 30 días)
+        if not end_date_str:
+            end_date = datetime.now()
+        else:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1) # Incluir el día completo
 
-        # LLAMADA A LA FUNCIÓN DE APROBACIÓN
-        resultado = ejecutar_aprobacion(thread_id, decision)
-        
-        procesar_respuesta_LLM(resultado, user_id, business_id)
-        
-        return jsonify({"status": "APROBACION_PROCESADA"})
+        if not start_date_str:
+            start_date = end_date - timedelta(days=30)
+        else:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
 
+        logger.info(f"📊 Consultando métricas para {business_id} desde {start_date} hasta {end_date}")
+
+        metrics = {
+            "period": {
+                "start": start_date.strftime('%Y-%m-%d'),
+                "end": end_date.strftime('%Y-%m-%d')
+            },
+            "summary": {},
+            "models_breakdown": [],
+            "sentiment_breakdown": {}
+        }
+
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                
+                # --- QUERY 1: RESUMEN GENERAL (KPIs) ---
+                sql_summary = """
+                    SELECT 
+                        COUNT(*) as total_interactions,
+                        COALESCE(SUM(input_tokens), 0) as total_input,
+                        COALESCE(SUM(output_tokens), 0) as total_output,
+                        COALESCE(SUM(estimated_cost), 0.0) as total_cost,
+                        COALESCE(AVG(latency_ms), 0)::INT as avg_latency
+                    FROM analytics_events 
+                    WHERE business_id = %s 
+                    AND timestamp >= %s AND timestamp < %s
+                """
+                cur.execute(sql_summary, (business_id, start_date, end_date))
+                row = cur.fetchone()
+                
+                metrics["summary"] = {
+                    "total_interactions": row[0],
+                    "total_input_tokens": row[1],
+                    "total_output_tokens": row[2],
+                    "total_tokens": row[1] + row[2],
+                    "total_cost_usd": round(row[3], 6),
+                    "avg_latency_ms": row[4]
+                }
+
+                # --- QUERY 2: DESGLOSE POR MODELO (Primary vs Backup) ---
+                sql_models = """
+                    SELECT model_name, COUNT(*), SUM(estimated_cost)
+                    FROM analytics_events 
+                    WHERE business_id = %s 
+                    AND timestamp >= %s AND timestamp < %s
+                    AND model_name IS NOT NULL
+                    GROUP BY model_name
+                    ORDER BY COUNT(*) DESC
+                """
+                cur.execute(sql_models, (business_id, start_date, end_date))
+                for m_row in cur.fetchall():
+                    metrics["models_breakdown"].append({
+                        "model": m_row[0],
+                        "usage_count": m_row[1],
+                        "cost": round(m_row[2] or 0, 6)
+                    })
+
+                # --- QUERY 3: SENTIMIENTO (Si lo estás guardando) ---
+                sql_sentiment = """
+                    SELECT sentiment_label, COUNT(*)
+                    FROM analytics_events 
+                    WHERE business_id = %s 
+                    AND timestamp >= %s AND timestamp < %s
+                    AND sentiment_label IS NOT NULL
+                    GROUP BY sentiment_label
+                """
+                cur.execute(sql_sentiment, (business_id, start_date, end_date))
+                for s_row in cur.fetchall():
+                    metrics["sentiment_breakdown"][s_row[0]] = s_row[1]
+
+        return jsonify(metrics)
+
+    except ValueError:
+        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
     except Exception as e:
-        logger.error(f"🔴 Error en aprobación: {e}")
+        logger.exception(f"🔴 Error obteniendo métricas: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -576,7 +714,7 @@ def aprobar():
 def ver_grafo_png():
     try:       
         logger.info("Generando grafo de estados del agente para visualización...")
-        
+
         # 1. Compilamos el grafo para poder dibujarlo
         app_visual = workflow_builder.compile()
 

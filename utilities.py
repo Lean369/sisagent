@@ -1,7 +1,8 @@
 import os
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
+from langgraph.checkpoint.postgres import PostgresSaver
 from loguru import logger
 
 # ==============================================================================
@@ -48,6 +49,7 @@ def obtener_configuraciones():
         logger.exception(f"🔴 Error leyendo config en caliente: {e}")
         # En caso de error, devolvemos lo que teníamos antes para no romper la app
         return _CONFIG_CACHE
+
 
 def es_horario_laboral(info_negocio) -> tuple[bool, str]:
     ahora = datetime.now()
@@ -212,3 +214,60 @@ def extraer_datos_respuesta(respuesta):
         return None
 
     return None
+
+
+
+def gestionar_expiracion_sesion(pool, thread_id: str, ttl_minutos: int):
+    """
+    Verifica si la última interacción fue hace más de 'ttl_minutos'.
+    Si es así, BORRA la memoria (checkpoints) de ese thread.
+    Retorna True si se reseteó la memoria, False si continúa la charla.
+    """
+    if ttl_minutos <= 0:
+        return False # Si es 0, nunca expira
+
+    # SQL para verificar la antigüedad
+    sql_check = """
+    SELECT created_at 
+    FROM checkpoints 
+    WHERE thread_id = %s 
+    ORDER BY created_at DESC 
+    LIMIT 1;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            # 1. Obtenemos la fecha del último checkpoint guardado
+            cur.execute(sql_check, (thread_id,))
+            resultado = cur.fetchone()
+            
+            if not resultado:
+                return False # No hay historia previa, es un usuario nuevo
+
+            # Procesamos la fecha
+            last_seen = resultado[0]
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            
+            # Hora actual en UTC
+            ahora = datetime.now(timezone.utc)
+            
+            # Calculamos la diferencia
+            diferencia = ahora - last_seen
+            
+            # 2. Comparamos
+            if diferencia > timedelta(minutes=ttl_minutos):
+                logger.info(f"🧹 Limpiando memoria de {thread_id}. Inactividad: {diferencia}")
+                
+                # A. Borrar writes
+                cur.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (thread_id,))
+                
+                # B. Borrar blobs
+                cur.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (thread_id,))
+                
+                # C. Borrar checkpoints principales
+                cur.execute("DELETE FROM checkpoints WHERE thread_id = %s", (thread_id,))
+                
+                return True
+            
+            return False

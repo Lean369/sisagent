@@ -57,7 +57,7 @@ graph TD
 
 ## 3. Funcionalidades Clave
 
-A) Procesamiento Asíncrono ("Fire and Forget")
+### A) Procesamiento Asíncrono ("Fire and Forget")
 Para evitar timeouts de WhatsApp y soportar múltiples usuarios simultáneos:
 
 - El Webhook (/webhook) recibe el mensaje y responde 200 OK en milisegundos.
@@ -66,25 +66,25 @@ Para evitar timeouts de WhatsApp y soportar múltiples usuarios simultáneos:
 
 - Esto libera al servidor web para seguir recibiendo mensajes mientras la IA "piensa" en hilos separados.
 
-B) Memoria y Contexto (Multi-tenant)
+### B) Memoria y Contexto (Multi-tenant)
 
 - Persistencia: Cada conversación se guarda en PostgreSQL bajo un thread_id único formado por business_id:telefono_usuario.
 
 - Aislamiento: El sistema soporta múltiples negocios (cliente1, cliente2) con configuraciones, prompts y herramientas totalmente independientes, cargadas dinámicamente desde config_negocios.json.
 
-C) Human-in-the-Loop (HITL) - Protocolo de Derivación
+### C) Human-in-the-Loop (HITL) - Protocolo de Derivación
 
-Sistema robusto para pasar del Bot al Humano y viceversa:
+Protocolo robusto de derivación a humanos con seguridad y fail-safes:
 
-1. Activación: El Agente detecta frustración o solicitud compleja y ejecuta la tool solicitar_atencion_humana.
+Activación: El Agente ejecuta la herramienta: solicitar_atencion_humana.
 
-2. Notificación: Se envía alerta al dueño (WhatsApp) y aviso al cliente.
+Modo Silencio con TTL: Se activa la señal "DERIVACION_EXITOSA_SILENCIO".
 
-3. Modo Silencio: La tool retorna la señal "DERIVACION_EXITOSA_SILENCIO". El sistema intercepta esto y bloquea cualquier respuesta automática del LLM, dejando el chat "mudo".
+Notificación Segura (Magic Links): Se envía un enlace al dueño con un token firmado (JWT).
 
-4. Reactivación: El humano, al terminar, dispara el endpoint /reactivar_bot. Esto inyecta un mensaje de sistema (BOT_REACTIVADO) que "despierta" al agente.
+Reactivación: El humano hace clic en el enlace, disparando una petición GET validada que inyecta BOT_REACTIVADO.
 
-D) Herramientas "Non-Blocking"
+### D) Herramientas "Non-Blocking"
 
 Las operaciones lentas (escribir en Google Sheets o CRM) no detienen la conversación:
 
@@ -92,15 +92,25 @@ Las operaciones lentas (escribir en Google Sheets o CRM) no detienen la conversa
 
 - Se dispara un hilo secundario (daemon) que realiza la conexión a las APIs externas en segundo plano sin bloquear el flujo del chat.
 
-E) Procesamiento de Audio
+### E) Procesamiento de Audio
 
 - Soporte nativo para notas de voz.
 
 - Flujo: Descarga de audio -> Conversión (ffmpeg) -> Transcripción (OpenAI Whisper) -> Inyección como texto en el Agente.
 
+### F) Gestión de Sesión y Olvido Automático (Lazy Expiration)
+
+Mecanismo para limpiar el contexto tras un periodo de inactividad:
+
+TTL Configurable: Cada negocio define su tiempo de vida de sesión (ej. 60 min).
+
+Verificación Perezosa: Al llegar un mensaje nuevo, se calcula la antigüedad del último checkpoint.
+
+Olvido Selectivo: Si el tiempo expiró, el sistema borra la memoria de corto plazo y el LLM inicia una nueva conversación "fresca", evitando alucinaciones con contextos antiguos.
+
 ## 4. Flujos de Datos (Workflows)
 
-Flujo 1: Recepción de Mensaje
+### Flujo 1: Recepción de Mensaje
 
 1. Evolution API envía POST /webhook.
 
@@ -110,21 +120,25 @@ Flujo 1: Recepción de Mensaje
 
 4. Flask retorna 200 OK inmediatamente.
 
-Flujo 2: Razonamiento del Agente (Worker)
+### Flujo 2: Razonamiento del Agente (Worker)
 
 1. LangGraph recupera el estado previo de PostgreSQL usando el thread_id.
 
 2. Carga el system_prompt específico del negocio desde JSON.
 
-3. LLM razona sobre el historial y decide: ¿Responder directo o usar Tool?
+3. Verificación de Sesión: Si expiró el TTL, se resetea el historial
+
+4. LLM razona sobre el historial y decide: ¿Responder directo o usar Tool?
 
     - Si es Tool: Ejecuta función Python -> Obtiene resultado -> Vuelve a pensar.
 
     - Si es Respuesta: Genera texto final.
 
-4. Filtro de Salida: Verifica si hay señal de "Silencio" (derivación).
+5. Registro de Métricas: Se lanza un hilo independiente para guardar tokens, latencia y costos en la DB sin bloquear la respuesta al usuario
 
-5. Envío: Llama a Evolution API para enviar la respuesta final al usuario.
+6. Filtro de Salida: Verifica si hay señal de "Silencio" (derivación).
+
+7. Envío: Llama a Evolution API para enviar la respuesta final al usuario.
 
 ## 5. Stack Tecnológico
 Componente | Tecnología | Descripción
@@ -142,30 +156,42 @@ Controla el comportamiento por cliente sin tocar código. Permite definir prompt
 
 ```json
 {
-  "cliente_ejemplo": {
-    "nombre": "Pizzería Demo",
-    "admin_phone": "54911xxxxxxxx",
-    "system_prompt": [
-      "Eres un asistente de pizzería.",
-      "Tus objetivos son vender y tomar pedidos."
-    ],
-    "tools_habilitadas": ["ver_menu", "solicitar_atencion_humana"]
+  "cliente1": {
+    "nombre": "Nike Store Palermo",
+    "ttl_sesion_minutos": 60,
+    "admin_phone": "54911XXXXXXXX",
+    "fuera_de_servicio": {
+      "activo": false,
+      "horario_inicio": "22:00",
+      "horario_fin": "09:00",
+      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "zona_horaria": "America/Argentina/Buenos_Aires",
+      "mensaje": []
+    },
+    "system_prompt": "Eres un experto vendedor de Nike. Tu objetivo es vender zapatillas y ropa deportiva...",
+    "mensaje_HITL": "",
+    "mensaje_usuario_1": [],
+    "tools_habilitadas": []
   }
-}
 ```
 
-Endpoints de Gestión:
+## Endpoints de Gestión:
 
 1.  POST /webhook: Recepción de mensajes (Evolution API).
 
 2.  POST /reactivar_bot: Despierta al bot tras intervención humana.
+
 ```bash
 curl -X POST http://localhost:5000/reactivar_bot \
   -H "Content-Type: application/json" \
   -d '{"user_id": "5491131376731@s.whatsapp.net", "business_id": "cliente2"}'
-  ```
+
+Reactivación segura mediante Magic Link.
+http://192.168.1.220:5000/reactivar_bot_web?token=eyJhbGciOiJIUzI1NiIsInR5cCI6Ik......
+```
 
 3.  DELETE /borrar_memoria: Resetea la conversación de un usuario.
+
 ```bash
 curl -X DELETE http://localhost:5000/borrar_memoria \
   -H "Content-Type: application/json" \
@@ -180,10 +206,81 @@ curl -X GET http://localhost:5000/ver-grafo --output arquitectura_agente.png
 http://192.168.1.220:5000/ver-grafo
 ```
 
-## 7. Próximos Pasos (Roadmap)
-Panel de Control (Frontend): Crear una interfaz visual para ver conversaciones, logs y pausar/activar bots manualmente.
+## 7. Metricas y Analíticas
 
-Métricas y Analytics: Explotar los logs de consumo de tokens para facturación por cliente y análisis de sentimiento.
+### 📊 Nuevas Métricas a implementar: 
+
+- Latencia Pura: Tiempo de "pensamiento" del LLM descontando la red.
+
+- Tasa de Uso de Herramientas (Tool Usage Rate):
+
+  ¿Qué es? ¿Qué % de mensajes resultan en una reserva, una consulta de stock o una derivación humana?
+
+  ¿Por qué? Te dice qué funcionalidad es la más valiosa para cada cliente.
+
+- Tasa de Derivación (Handoff Rate):
+
+  ¿Qué es? Porcentaje de conversaciones que terminan en solicitar_atencion_humana.
+
+  ¿Por qué? Si es muy alto (>20%), tu prompt o tus tools están fallando. Si es muy bajo, quizás el bot no está detectando la frustración.
+
+- Costo Real vs. Precio de Venta (Unit Economics):
+
+  Calculado: (Tokens Entrada * Costo + Tokens Salida * Costo).
+
+  Para facturar con margen de ganancia.
+
+- Cantidad de Interacciones por Usuario: Para entender el engagement y detectar usuarios frecuentes.
+
+- cantidad de iteracciones por cliente: Para comparar entre negocios y entender quién saca más provecho del sistema.
+
+### Endpoint que devuelve un JSON estructurado con:
+
+- KPIs Generales: Costo total, tokens totales, latencia promedio.
+
+- Desglose por Modelo: Para ver cuánto usaste el modelo principal vs. el de backup.
+
+- Análisis de Sentimiento: Conteo de positivos, negativos y neutros. (no implementado aún)
+
+A) Consulta Básica (Últimos 30 días)
+
+```bash
+curl "http://localhost:5000/api/metrics?business_id=cliente2"
+```
+
+B) Consulta con Rango de Fechas Específico
+
+```bash
+curl "http://localhost:5000/api/metrics?business_id=cliente2&start_date=2024-02-01&end_date=2024-02-15"
+```
+
+```json
+{
+  "models_breakdown": [
+    {
+      "cost": 0.000235,
+      "model": "openai/gpt-oss-20b",
+      "usage_count": 3
+    }
+  ],
+  "period": {
+    "end": "2026-02-08",
+    "start": "2026-01-09"
+  },
+  "sentiment_breakdown": {},
+  "summary": {
+    "avg_latency_ms": 732,
+    "total_cost_usd": 0.000235,
+    "total_input_tokens": 1464,
+    "total_interactions": 3,
+    "total_output_tokens": 416,
+    "total_tokens": 1880
+  }
+}
+```
+
+## . Próximos Pasos (Roadmap)
+Panel de Control (Frontend): Crear una interfaz visual para ver conversaciones, logs y pausar/activar bots manualmente.
 
 RAG (Retrieval Augmented Generation): Integrar una base de conocimientos vectorial (PDFs/Web) para respuestas más específicas sobre productos sin ensuciar el prompt del sistema.
 

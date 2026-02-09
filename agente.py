@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from loguru import logger
 import sys
 import json
+import threading
 
 # --- Imports de IA ---
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -20,12 +21,13 @@ from langchain_core.messages import ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
-from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configuraciones
+from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configuraciones, gestionar_expiracion_sesion
 
 # --- Imports de Herramientas ---
-from agente_metricas import loguear_consumo_tokens
 from crm_tools import trigger_booking_tool, consultar_stock, ver_menu
 from hitl_tools import solicitar_atencion_humana
+from analytics import registrar_evento
+import time
 
 # Cargar .env
 load_dotenv(override=True)
@@ -134,6 +136,15 @@ with pool.connection() as conn:
     checkpointer_temp.setup()
 
 
+def _lanzar_metricas_background(pool, response_msg, thread_id, latency_ms, isLlmPrimary=True):
+    """Lanza el registro de métricas en un hilo independiente para no bloquear."""
+    hilo = threading.Thread(
+        target=registrar_evento,
+        args=(pool, response_msg, thread_id, latency_ms, isLlmPrimary),
+        daemon=False # False asegura que se guarde aunque el request principal termine
+    )
+    hilo.start()
+
 # ==============================================================================
 # 2. DEFINICIÓN DEL GRAFO MULTI-TENANT
 # ==============================================================================
@@ -236,15 +247,20 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     mensajes_entrada = [SystemMessage(content=prompt_final)] + state["messages"]
 
     logger.info(f"Ejecutando LLM para thread: {thread_id}")
+    # ⏱️ INICIO CRONÓMETRO (Solo para el LLM)
+    start_time = time.time()
     
     try:
         # 7. Invocación al LLM con manejo de errores interno (fallback a modelo backup)
         response_msg = llm_actual.invoke(mensajes_entrada)
         
+        # ⏱️ CÁLCULO DE TIEMPO
+        latency_ms = int((time.time() - start_time) * 1000)
+
         logger.success(f"Respuesta de llm_actual para {thread_id}: {response_msg.content[:200]}...")
 
-        # Logging de tokens
-        loguear_consumo_tokens(response_msg, thread_id)
+        _lanzar_metricas_background(pool, response_msg, thread_id, latency_ms, isLlmPrimary=True)
+
         
         # 6. RETORNO CORRECTO: Debe ser un dict con la clave 'messages'
         # LangGraph tomará esto y hará un append a la lista de mensajes en la DB.
@@ -256,10 +272,13 @@ def nodo_chatbot(state: State, config: RunnableConfig):
         try:
             response_msg = llm_backup_actual.invoke(mensajes_entrada)
 
+            # ⏱️ CÁLCULO DE TIEMPO
+            latency_ms = int((time.time() - start_time) * 1000)
+
             logger.success(f"Respuesta de llm_backup_actual para {thread_id}: {response_msg.content[:200]}...")
 
-            loguear_consumo_tokens(response_msg, thread_id)
-            
+            _lanzar_metricas_background(pool, response_msg, thread_id, latency_ms, isLlmPrimary=False)
+                
             return {"messages": [response_msg]}
 
         except Exception as e2:
@@ -340,7 +359,18 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
         thread_id = conf_data.get('thread_id', 'unknown')
         business_id = conf_data.get('business_id', 'unknown')
         
-        logger.info(f"Procesando msg. thread={thread_id}, business={business_id}")
+        # ---------------------Verificación de sesión expirada------------------------------------
+        config_actual = obtener_configuraciones() 
+        info_negocio = config_actual.get(business_id)
+        ttl_minutos = info_negocio.get("ttl_sesion_minutos", 60)
+        logger.info(f"Procesando msg. thread={thread_id}, business={business_id}, ttl_sesion={ttl_minutos}min")
+
+        # 🧹 --- NUEVA LÓGICA DE LIMPIEZA ---
+        # Si la sesión expiró, esto borra la DB y el bot arranca de cero.
+        sesion_reseteada = gestionar_expiracion_sesion(pool, thread_id, ttl_minutos)
+        
+        if sesion_reseteada:
+            logger.info(f"🧹 Sesión reiniciada para {thread_id} por inactividad.")
 
         with pool.connection() as conn:
             checkpointer = PostgresSaver(conn)
@@ -350,7 +380,6 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
             
             # Ejecución
             result = app.invoke(inputs, config=config)
-            #display(Image(app.get_graph().draw.png()))  # Visualizar el grafo (opcional, para debugging)
 
             mensajes = result.get("messages", [])
 

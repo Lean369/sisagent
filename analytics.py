@@ -1,3 +1,5 @@
+import time
+from psycopg_pool import ConnectionPool
 from loguru import logger
 from langchain_core.messages import BaseMessage
 import os
@@ -22,10 +24,11 @@ def cargar_pricing():
 
 MODEL_PRICING = cargar_pricing()
 
-# Esta función extrae los contadores de tokens consumidos de forma segura y los imprime en el log.
-def loguear_consumo_tokens(result, thread_id):
+def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmPrimary=True):
     """
-    Extrae tokens y calcula costo exacto según el modelo utilizado.
+    1- Extrae tokens y calcula costo exacto según el modelo utilizado.
+    2- Inserta un evento en la tabla de analytics de forma segura.
+    No bloquea si falla (fire and forget lógico).
     """
     try:
         # 1. Normalización del objeto mensaje/result
@@ -47,7 +50,7 @@ def loguear_consumo_tokens(result, thread_id):
             if hasattr(mensaje, 'response_metadata'):
                 metadata = mensaje.response_metadata
 
-        if not mensaje: return
+        if not mensaje: return []
 
         # 2. Extracción de Tokens
         usage = None
@@ -88,7 +91,7 @@ def loguear_consumo_tokens(result, thread_id):
             logger.info(
                 f"💰 TOKEN USAGE [{thread_id}] ({model_name}): "
                 f"In={input_tokens} | Out={output_tokens} | Total={total_tokens} | "
-                f"Costo: {str_costo}"
+                f"Costo: {str_costo} | Latency: {latency_ms}ms"
             )
             # --- 🔍 DETECCIÓN DE TOOLS (NUEVO) ---
             if result.tool_calls:
@@ -101,9 +104,37 @@ def loguear_consumo_tokens(result, thread_id):
                 # El LLM respondió con texto normal
                 logger.info("💬 LLM respondió con texto.")
 
+            # 📝 REGISTRO EN DB (Fire and Forget)
+            business_id = thread_id.split(':')[0] if ':' in thread_id else ""
+
+            data = (
+                business_id,
+                thread_id,
+                "llm_primary" if isLlmPrimary else "llm_fallback", 
+                input_tokens,
+                output_tokens,
+                f"{model_name}", 
+                costo_total,
+                latency_ms,
+                f"{tool_name}" if result.tool_calls else "text_resp",
+                None
+            )
+
+            sql = """
+            INSERT INTO analytics_events 
+            (business_id, thread_id, event_type, input_tokens, output_tokens, 
+            model_name, estimated_cost, latency_ms, tool_name, sentiment_label)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+
+            with pool.connection() as conn:
+                conn.execute(sql, data)
+
+            logger.info(f"✅ Evento de consumo de tokens registrado en DB para thread_id: {thread_id}")
+
             return usage
 
     except Exception as e:
-        logger.exception(f"⚠️ Error calculando métricas de tokens: {e}")
-    
-    return None
+        logger.error(f"⚠️ Error calculando métricas de tokens: {e}")
+        return None
+

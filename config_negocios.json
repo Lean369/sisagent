@@ -1,6 +1,7 @@
 {
   "cliente1": {
     "nombre": "Nike Store Palermo",
+    "ttl_sesion_minutos": 60,
     "admin_phone": "54911XXXXXXXX",
     "fuera_de_servicio": {
       "activo": false,
@@ -17,6 +18,7 @@
   },
   "cliente2": {
     "nombre": "Luigi's Pizza",
+    "ttl_sesion_minutos": 6,
     "admin_phone": "5491131376731",
     "fuera_de_servicio": {
       "activo": false,
@@ -44,6 +46,7 @@
   },
   "cliente4": {
     "nombre": "Sisnova Tech",
+    "ttl_sesion_minutos": 60,
     "admin_phone": "54911XXXXXXXX",
     "fuera_de_servicio": {
       "activo": true,
