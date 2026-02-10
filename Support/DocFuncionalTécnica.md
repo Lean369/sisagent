@@ -291,6 +291,4 @@ curl "http://localhost:5000/api/metrics?business_id=cliente2&start_date=2024-02-
 ## . Próximos Pasos (Roadmap)
 Panel de Control (Frontend): Crear una interfaz visual para ver conversaciones, logs y pausar/activar bots manualmente.
 
-RAG (Retrieval Augmented Generation): Integrar una base de conocimientos vectorial (PDFs/Web) para respuestas más específicas sobre productos sin ensuciar el prompt del sistema.
-
 Broadcast: Funcionalidad para envíos masivos proactivos a listas de leads capturados.

@@ -532,15 +532,15 @@ def reactivar_bot_web():
         # 1. Decodificar y Validar (Si esto pasa, los datos son auténticos)
         business_id, user_id = decodificar_token_reactivacion(token)
         
-        # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
-        if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
-            puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
-            if not puede_procesar:
-                logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
-                # NO enviar mensaje automático para prevenir loops
-                return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
-            else:
-                logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
+        # # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
+        # if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
+        #     puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
+        #     if not puede_procesar:
+        #         logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
+        #         # NO enviar mensaje automático para prevenir loops
+        #         return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
+        #     else:
+        #         logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
 
         thread_id = f"{business_id}:{user_id}"
         

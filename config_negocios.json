@@ -21,7 +21,7 @@
     "mensaje_usuario_1": [],
     "tools_habilitadas": ["consultar_base_conocimiento"]
   },
-  "cliente2": {
+  "cliente8": {
     "nombre": "Soporte IT Start",
     "ttl_sesion_minutos": 60,
     "admin_phone": "5491131376731",
@@ -62,7 +62,7 @@
     "mensaje_usuario_1": [],
     "tools_habilitadas": []
   },
-  "cliente3": {
+  "cliente2": {
     "nombre": "Luigi's Pizza",
     "ttl_sesion_minutos": 6,
     "admin_phone": "5491131376731",
@@ -87,7 +87,7 @@
       "5. NO agregues texto antes ni después."
     ],
     "mensaje_HITL": "👨‍🍳 Veo que has solicitado hablar con una persona. No te preocupes, ya estoy avisando a nuestro equipo humano para que se contacte contigo lo antes posible. Adios! 🍕",
-    "mensaje_usuario_1": [],
+    "mensaje_usuario_1": ["Gracias por contactarnos! Soy el asistente virtual de Luigi's Pizza. ¿En qué puedo ayudarte hoy?"],
     "tools_habilitadas": ["ver_menu", "solicitar_atencion_humana"]
   },
   "cliente4": {
