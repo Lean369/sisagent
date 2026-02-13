@@ -51,6 +51,7 @@ except ValueError:
     pass # Ya estaba removido
 
 # 1. Salida en Consola (Colorida y legible)
+os.makedirs("logs", exist_ok=True)
 logger.add(
     sys.stderr,
     level="DEBUG",

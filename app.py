@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask import Response
-from agente import procesar_mensaje
+from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY
+from utilities import obtener_configuraciones
 from tools_hitl import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
 from ddos_protection import ddos_protection
@@ -717,6 +718,279 @@ def get_business_metrics():
         return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
     except Exception as e:
         logger.exception(f"🔴 Error obteniendo métricas: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================================================
+# ENDPOINTS DE GESTIÓN DE CLIENTES (config_negocios.json)
+# ==============================================================================
+
+@app.route('/api/get-tools', methods=['GET'])
+def listar_tools():
+    """Obtiene la lista completa de herramientas disponibles."""
+    try:
+        tools = obtener_todas_las_tools()
+        logger.info(f"📋 Listando {len(tools)} herramientas (raw objects)")
+
+        # Obtener clientes que usan cada tool (desde config hot-reload)
+        config = obtener_configuraciones()
+        clients_map: dict = {}
+        for business_id, conf in (config or {}).items():
+            if not isinstance(conf, dict):
+                continue
+            for t in conf.get('tools_habilitadas', []) or []:
+                if isinstance(t, str):
+                    clients_map.setdefault(t, []).append(business_id)
+
+        tools_meta = []
+        for t in tools:
+            # Usar el atributo .name del tool object directamente
+            tool_name = getattr(t, 'name', None) or getattr(t, '__name__', str(t))
+            description = getattr(t, 'description', None) or (t.__doc__ if hasattr(t, '__doc__') else '')
+            
+            tools_meta.append({
+                "name": tool_name,
+                "description": description or "",
+                "module": getattr(t, '__module__', ''),
+                "clients": clients_map.get(tool_name, [])
+            })
+
+        logger.info(f"📋 Entregando {len(tools_meta)} herramientas (serializables)")
+        return jsonify(tools_meta), 200
+    except Exception as e:
+        logger.exception(f"🔴 Error listando herramientas: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/config/clientes', methods=['GET'])
+def listar_clientes():
+    """Obtiene la lista completa de clientes."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        logger.info(f"📋 Listando {len(config)} clientes")
+        return jsonify(config), 200
+        
+    except Exception as e:
+        logger.exception(f"🔴 Error listando clientes: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config/clientes/<business_id>', methods=['GET'])
+def obtener_cliente(business_id):
+    """Obtiene la configuración de un cliente específico."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        if business_id not in config:
+            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+        
+        logger.info(f"📄 Obteniendo configuración de cliente {business_id}")
+        return jsonify(config[business_id]), 200
+        
+    except Exception as e:
+        logger.exception(f"🔴 Error obteniendo cliente {business_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config/clientes/<business_id>', methods=['PUT'])
+def actualizar_cliente_completo(business_id):
+    """Actualiza completamente la configuración de un cliente (reemplaza todo)."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+        
+        # Cargar configuración actual
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        if business_id not in config:
+            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+        
+        # Obtener datos del request
+        nuevos_datos = request.json
+        if not nuevos_datos:
+            return jsonify({"error": "No se enviaron datos"}), 400
+        
+        # Validar campos requeridos
+        campos_requeridos = ['nombre', 'ttl_sesion_minutos', 'admin_phone']
+        for campo in campos_requeridos:
+            if campo not in nuevos_datos:
+                return jsonify({"error": f"Campo requerido faltante: {campo}"}), 400
+        
+        # Reemplazar completamente
+        config[business_id] = nuevos_datos
+        
+        # Guardar archivo
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        logger.success(f"✅ Cliente {business_id} actualizado completamente")
+        return jsonify({
+            "status": "success",
+            "message": f"Cliente {business_id} actualizado",
+            "data": config[business_id]
+        }), 200
+        
+    except Exception as e:
+        logger.exception(f"🔴 Error actualizando cliente {business_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config/clientes/<business_id>', methods=['PATCH'])
+def actualizar_cliente_parcial(business_id):
+    """Actualiza parcialmente la configuración de un cliente (solo los campos enviados)."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+        
+        # Cargar configuración actual
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        if business_id not in config:
+            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+        
+        # Obtener datos del request
+        actualizaciones = request.json
+        if not actualizaciones:
+            return jsonify({"error": "No se enviaron datos para actualizar"}), 400
+        
+        # Actualizar solo los campos enviados (merge recursivo para objetos anidados)
+        def merge_dicts(base, updates):
+            """Merge recursivo de diccionarios."""
+            for key, value in updates.items():
+                if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                    merge_dicts(base[key], value)
+                else:
+                    base[key] = value
+        
+        merge_dicts(config[business_id], actualizaciones)
+        
+        # Guardar archivo
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        logger.success(f"✅ Cliente {business_id} actualizado parcialmente: {list(actualizaciones.keys())}")
+        return jsonify({
+            "status": "success",
+            "message": f"Cliente {business_id} actualizado",
+            "updated_fields": list(actualizaciones.keys()),
+            "data": config[business_id]
+        }), 200
+        
+    except Exception as e:
+        logger.exception(f"🔴 Error actualizando cliente {business_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config/clientes/<business_id>', methods=['DELETE'])
+def eliminar_cliente(business_id):
+    """Elimina un cliente de la configuración."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+        
+        # Cargar configuración actual
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        if business_id not in config:
+            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+        
+        # Guardar copia antes de eliminar
+        cliente_eliminado = config[business_id]
+        
+        # Eliminar
+        del config[business_id]
+        
+        # Guardar archivo
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        logger.warning(f"🗑️ Cliente {business_id} eliminado")
+        return jsonify({
+            "status": "success",
+            "message": f"Cliente {business_id} eliminado",
+            "deleted_data": cliente_eliminado
+        }), 200
+        
+    except Exception as e:
+        logger.exception(f"🔴 Error eliminando cliente {business_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config/clientes', methods=['POST'])
+def crear_cliente():
+    """Crea un nuevo cliente en la configuración."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+        
+        # Cargar configuración actual
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Obtener datos del request
+        nuevos_datos = request.json
+        if not nuevos_datos:
+            return jsonify({"error": "No se enviaron datos"}), 400
+        
+        # Validar que se envíe el business_id
+        business_id = nuevos_datos.get('business_id')
+        if not business_id:
+            return jsonify({"error": "Campo 'business_id' es requerido"}), 400
+        
+        # Verificar que no exista
+        if business_id in config:
+            return jsonify({"error": f"Cliente {business_id} ya existe"}), 409
+        
+        # Validar campos requeridos
+        campos_requeridos = ['nombre', 'ttl_sesion_minutos', 'admin_phone']
+        for campo in campos_requeridos:
+            if campo not in nuevos_datos:
+                return jsonify({"error": f"Campo requerido faltante: {campo}"}), 400
+        
+        # Estructura por defecto si no se proporciona
+        nuevo_cliente = {
+            "nombre": nuevos_datos['nombre'],
+            "ttl_sesion_minutos": nuevos_datos['ttl_sesion_minutos'],
+            "admin_phone": nuevos_datos['admin_phone'],
+            "fuera_de_servicio": nuevos_datos.get('fuera_de_servicio', {
+                "activo": False,
+                "horario_inicio": "09:00",
+                "horario_fin": "18:00",
+                "dias_laborales": [1, 2, 3, 4, 5],
+                "zona_horaria": "America/Argentina/Buenos_Aires",
+                "mensaje": []
+            }),
+            "system_prompt": nuevos_datos.get('system_prompt', []),
+            "mensaje_HITL": nuevos_datos.get('mensaje_HITL', ""),
+            "mensaje_usuario_1": nuevos_datos.get('mensaje_usuario_1', []),
+            "tools_habilitadas": nuevos_datos.get('tools_habilitadas', [])
+        }
+        
+        # Agregar a la configuración
+        config[business_id] = nuevo_cliente
+        
+        # Guardar archivo
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        logger.success(f"✅ Cliente {business_id} creado exitosamente")
+        return jsonify({
+            "status": "success",
+            "message": f"Cliente {business_id} creado",
+            "data": nuevo_cliente
+        }), 201
+        
+    except Exception as e:
+        logger.exception(f"🔴 Error creando cliente: {e}")
         return jsonify({"error": str(e)}), 500
 
 

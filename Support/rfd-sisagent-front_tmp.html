@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>rfd-sisagent-front.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="requerimientos-funcionales-panel-de-control-sisagent">Requerimientos Funcionales: Panel de Control Sisagent</h1>
+<p>Descripción: Este documento detalla los requerimientos funcionales para el desarrollo del panel de control de Sisagent, una plataforma de gestión de bots conversacionales para negocios. El panel permitirá a los clientes administrar sus bots y al Super Admin gestionar la plataforma global.</p>
+<h2 id="1-arquitectura-de-la-soluci%C3%B3n-frontend">1. Arquitectura de la Solución (Frontend)</h2>
+<p>Para que este panel funcione, el backend debe exponer una API REST. A continuación se describen los endpoints necesarios:</p>
+<h2 id="2-roles-de-usuario">2. Roles de Usuario</h2>
+<p>El sistema debe diferenciar claramente dos niveles de acceso:</p>
+<ul>
+<li>
+<p>Cliente (Dueño de Negocio): Acceso restringido exclusivamente a su business_id.</p>
+</li>
+<li>
+<p>Super Admin: Acceso global a todos los negocios, métricas agregadas y configuraciones del sistema.</p>
+</li>
+</ul>
+<h2 id="3-vista-de-cliente-el-%22dashboard-de-negocio%22">3. Vista de Cliente (El &quot;Dashboard de Negocio&quot;)</h2>
+<p>Esta vista debe ser limpia, intuitiva y a prueba de errores.</p>
+<h3 id="m%C3%B3dulo-a-estado-y-control-principal">Módulo A: Estado y Control Principal</h3>
+<h4 id="rf-c01-interruptor-maestro-kill-switch">RF-C01 Interruptor Maestro (Kill Switch):</h4>
+<ul>
+<li>
+<p>Un botón tipo &quot;Toggle&quot; grande que permita Activar/Pausar el bot instantáneamente.</p>
+</li>
+<li>
+<p>Lógica: Si está pausado, el webhook responde 200 OK pero no procesa el mensaje (o envía un mensaje de &quot;Mantenimiento&quot;).</p>
+</li>
+</ul>
+<h4 id="rf-c02-bot%C3%B3n-de-p%C3%A1nico-solicitar-humano">RF-C02 Botón de Pánico (Solicitar Humano):</h4>
+<ul>
+<li>Botón para forzar el modo &quot;Silencio&quot; manualmente desde el panel sin esperar a que el usuario lo pida.</li>
+</ul>
+<h4 id="rf-c03-reactivaci%C3%B3n-manual">RF-C03 Reactivación Manual:</h4>
+<p>Botón para &quot;Despertar&quot; al bot (equivalente al enlace mágico o endpoint /reactivar_bot).</p>
+<h3 id="m%C3%B3dulo-e-ajuste-del-agente-horarios-mensajes-fijos-etc">Módulo E: Ajuste del Agente (Horarios, mensajes fijos, etc.)</h3>
+<h4 id="rf-c09-configuraci%C3%B3n-de-fuera-de-horario">RF-C09 Configuración de Fuera de Horario:</h4>
+<ul>
+<li>
+<p>Definir rango horario de atención del bot.</p>
+</li>
+<li>
+<p>Definir un checkbox para activar/desactivar el modo fuera de horario.</p>
+</li>
+<li>
+<p>Definir mensaje personalizado para cuando el bot está &quot;durmiendo&quot; o en mantenimiento.</p>
+</li>
+<li>
+<p>Definir un checkbox para activar/desactivar el modo Silencio (Kill Switch)</p>
+</li>
+</ul>
+<h3 id="m%C3%B3dulo-f-broadcast-de-mensajes">Módulo F: Broadcast de Mensajes</h3>
+<h4 id="rf-c11-env%C3%ADo-de-anuncios">RF-C11 Envío de Anuncios:</h4>
+<ul>
+<li>
+<p>Área para escribir un mensaje que se enviará a todos los clientes conectados en ese momento (ej: &quot;Estamos actualizando nuestros sistemas, disculpen las molestias&quot;).</p>
+</li>
+<li>
+<p>Botón para enviar el mensaje a todos los clientes conectados (usando WebSocket o un endpoint específico).</p>
+</li>
+<li>
+<p>Mensaje de confirmación: &quot;¿Enviar este mensaje a todos los clientes conectados? [Confirmar] [Cancelar]&quot;</p>
+</li>
+<li>
+<p>Lista de números telefónicos disponibles para enviar el mensaje de forma individual (usando el endpoint de envío de mensajes).</p>
+</li>
+</ul>
+<h2 id="4-vista-de-super-admin-tu-%22torre-de-control%22">4. Vista de Super Admin (Tu &quot;Torre de Control&quot;)</h2>
+<p>El Super Admin tiene acceso a un panel más completo que le permite gestionar todos los aspectos de la plataforma.
+Puede ver y gestionar todos los negocios, métricas globales, logs y configuraciones del sistema.</p>
+<h3 id="m%C3%B3dulo-b-configuraci%C3%B3n-del-cerebro-ia">Módulo B: Configuración del Cerebro (IA)</h3>
+<h4 id="rf-c04-edici%C3%B3n-de-prompt-del-sistema">RF-C04 Edición de Prompt del Sistema:</h4>
+<p>Un área de texto para editar el system_prompt de cada negocio.</p>
+<p>Validación: No permitir guardar si el campo está vacío.</p>
+<h4 id="rf-c05-configuraci%C3%B3n-de-sesi%C3%B3n-ttl">RF-C05 Configuración de Sesión (TTL):</h4>
+<p>Input numérico para definir ttl_sesion_minutos (tiempo tras el cual el bot olvida la charla) por cada negocio.</p>
+<h4 id="rf-c10-habilitar-transcripci%C3%B3n-de-audio">RF-C10 Habilitar transcripción de audio:</h4>
+<ul>
+<li>Checkbox para activar/desactivar la función de transcripción de audio a texto.</li>
+</ul>
+<h3 id="m%C3%B3dulo-c-gesti%C3%B3n-de-herramientas-tools">Módulo C: Gestión de Herramientas (Tools)</h3>
+<h4 id="rf-c06-selector-de-herramientas">RF-C06 Selector de Herramientas:</h4>
+<p>Lista para asociar herramientas a un negocio:</p>
+<ul>
+<li>
+<p>Las herramientas disponibles se podrán consultar desde el backend (GET /api/tools) y pueden incluir: RAG, HITL, Calendar, etc.</p>
+</li>
+<li>
+<p>Cada herramienta tendrá un checkbox para activarla/desactivarla para ese negocio.</p>
+</li>
+</ul>
+<pre class="hljs"><code><div>
+</div></code></pre>
+<p><input type="checkbox" id="checkbox0"><label for="checkbox0">Búsqueda en Base de Conocimientos (RAG)</label></p>
+<p><input type="checkbox" id="checkbox1"><label for="checkbox1">Derivación a Humano (HITL)</label></p>
+<p><input type="checkbox" id="checkbox2"><label for="checkbox2">Consultar Menú/Precios (Excel)</label></p>
+<p><input type="checkbox" id="checkbox3"><label for="checkbox3">Agendar Citas (Calendar)</label></p>
+<h3 id="m%C3%B3dulo-d-base-de-conocimientos-rag">Módulo D: Base de Conocimientos (RAG)</h3>
+<h4 id="rf-c07-subida-de-archivos">RF-C07 Subida de Archivos:</h4>
+<ul>
+<li>
+<p>Área de &quot;Drag &amp; Drop&quot; para subir archivos PDF, CSV o TXT.</p>
+</li>
+<li>
+<p>Acción: Al subir, el backend debe ejecutar automáticamente el script de ingesta/vectorización.</p>
+</li>
+</ul>
+<h4 id="rf-c08-listado-de-documentos">RF-C08 Listado de Documentos:</h4>
+<p>Ver qué archivos están actualmente &quot;enseñados&quot; al bot y poder borrarlos.</p>
+<h3 id="m%C3%B3dulo-f-m%C3%A9tricas-globales-analytics-dashboard">Módulo F: Métricas Globales (Analytics Dashboard)</h3>
+<h4 id="rf-a01-kpis-agregados">RF-A01 KPIs Agregados:</h4>
+<ul>
+<li>
+<p>Total de mensajes procesados hoy (suma de todos los clientes).</p>
+</li>
+<li>
+<p>Costo Total USD acumulado (mes en curso).</p>
+</li>
+<li>
+<p>Tasa de Error Global (fallos de API).</p>
+</li>
+</ul>
+<h4 id="rf-a02-tabla-de-negocios">RF-A02 Tabla de Negocios:</h4>
+<ul>
+<li>
+<p>Listado de todos los clientes (business_id, Nombre, Estado, Plan).</p>
+</li>
+<li>
+<p>Columnas de métricas rápidas: &quot;Gasto del mes&quot;, &quot;Última actividad&quot;.</p>
+</li>
+<li>
+<p>Acciones: &quot;Editar Config&quot;, &quot;Ver Logs&quot;, &quot;Suspender Servicio&quot;.</p>
+</li>
+<li>
+<p>Activar funcionalidades: Trasncripción de audio, fuera de horario, broadcast</p>
+</li>
+</ul>
+<h3 id="m%C3%B3dulo-g-gesti%C3%B3n-de-facturaci%C3%B3n-unit-economics">Módulo G: Gestión de Facturación (Unit Economics)</h3>
+<h4 id="rf-a03-reporte-de-costos-por-cliente">RF-A03 Reporte de Costos por Cliente:</h4>
+<ul>
+<li>
+<p>Visualización exacta de cuántos tokens consumió cada cliente para poder facturarles.</p>
+</li>
+<li>
+<p>Desglose: Costo Modelo Principal vs. Costo Backup.</p>
+</li>
+<li>
+<p>Asignar planes de suscripción (Free, Pro, Enterprise) con límites y precios predefinidos.</p>
+</li>
+</ul>
+<h3 id="m%C3%B3dulo-h-auditor%C3%ADa-y-logs">Módulo H: Auditoría y Logs</h3>
+<h4 id="rf-a04-visor-de-logs-en-vivo">RF-A04 Visor de Logs en Vivo:</h4>
+<p>Una consola web que muestre los logs de analytics_events filtrables por thread_id para depurar errores sin entrar al servidor por SSH.</p>
+<h2 id="5-mockup-de-datos-estructura-json-propuesta-para-api">5. Mockup de Datos (Estructura JSON propuesta para API)</h2>
+<p>Para que el frontend funcione, el backend debería devolver un JSON así al hacer GET /api/config/{business_id}:</p>
+<pre class="hljs"><code><div>{
+  <span class="hljs-attr">"business_id"</span>: <span class="hljs-string">"cliente2"</span>,
+  <span class="hljs-attr">"active"</span>: <span class="hljs-literal">true</span>,
+  <span class="hljs-attr">"system_prompt"</span>: <span class="hljs-string">"Eres un asistente de ventas..."</span>,
+  <span class="hljs-attr">"session_ttl"</span>: <span class="hljs-number">60</span>,
+  <span class="hljs-attr">"tools"</span>: {
+    <span class="hljs-attr">"rag"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-attr">"human_handoff"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-attr">"calendar"</span>: <span class="hljs-literal">false</span>
+  },
+  <span class="hljs-attr">"messages"</span>: {
+    <span class="hljs-attr">"maintenance"</span>: <span class="hljs-string">"Estamos actualizando nuestros sistemas..."</span>,
+    <span class="hljs-attr">"out_of_office"</span>: <span class="hljs-string">"Volvemos mañana a las 9am."</span>
+  },
+  <span class="hljs-attr">"documents"</span>: [
+    {<span class="hljs-attr">"id"</span>: <span class="hljs-number">1</span>, <span class="hljs-attr">"name"</span>: <span class="hljs-string">"lista_precios.pdf"</span>, <span class="hljs-attr">"date"</span>: <span class="hljs-string">"2026-02-09"</span>}
+  ]
+}
+</div></code></pre>
+<h2 id="6-stack-tecnol%C3%B3gico-sugerido-para-frontend">6. Stack Tecnológico Sugerido para Frontend</h2>
+<p>.</p>
+
+</body>
+</html>

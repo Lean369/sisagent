@@ -3,61 +3,95 @@
     "nombre": "VLShoes",
     "ttl_sesion_minutos": 60,
     "admin_phone": "5491131376731",
+    "audio_transcripcion": false,
     "fuera_de_servicio": {
       "activo": false,
       "horario_inicio": "22:00",
       "horario_fin": "09:00",
-      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "dias_laborales": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
       "zona_horaria": "America/Argentina/Buenos_Aires",
       "mensaje": []
     },
-    "system_prompt": ["Eres un experto vendedor de zapatos de mujer de VLShoes.",
-    "Tu objetivo es vender, pero sin ser molesto.",
-    "REGLAS IMPORTANTES:",
-    "1. Usa la herramienta 'consultar_base_conocimiento' SOLO si el usuario pide explícitamente un producto.",
-    "2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.",
-    "3. No asumas qué producto quiere el usuario si no lo ha mencionado."],
+    "system_prompt": [
+      "Eres un experto vendedor de zapatos de mujer de VLShoes.",
+      "Tu objetivo es vender, pero sin ser molesto.",
+      "REGLAS IMPORTANTES:",
+      "1. Usa la herramienta 'consultar_base_conocimiento' SOLO si el usuario pide explícitamente un producto.",
+      "2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.",
+      "3. No asumas qué producto quiere el usuario si no lo ha mencionado."
+    ],
     "mensaje_HITL": "",
     "mensaje_usuario_1": [],
-    "tools_habilitadas": ["consultar_base_conocimiento"]
+    "tools_habilitadas": [
+      "consultar_base_conocimiento"
+    ]
   },
   "cliente8": {
     "nombre": "Soporte IT Start",
     "ttl_sesion_minutos": 60,
     "admin_phone": "5491131376731",
+    "audio_transcripcion": false,
     "fuera_de_servicio": {
       "activo": false,
       "horario_inicio": "22:00",
       "horario_fin": "09:00",
-      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "dias_laborales": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
       "zona_horaria": "America/Argentina/Buenos_Aires",
       "mensaje": []
     },
-    "system_prompt": ["Eres un experto en soporte IT de ATMs",
-    "Tu objetivo es ayudar a resolver problemas técnicos y suministrar información sobre los productos, pero sin ser molesto.",
-    "REGLAS IMPORTANTES:",
-    "1. Usa la herramienta 'consultar_base_conocimiento' cuando necesites obtener información técnica específica sobre los productos o servicios.",
-    "2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS."],
+    "system_prompt": [
+      "Eres un experto en soporte IT de ATMs",
+      "Tu objetivo es ayudar a resolver problemas técnicos y suministrar información sobre los productos, pero sin ser molesto.",
+      "REGLAS IMPORTANTES:",
+      "1. Usa la herramienta 'consultar_base_conocimiento' cuando necesites obtener información técnica específica sobre los productos o servicios.",
+      "2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS."
+    ],
     "mensaje_HITL": "",
     "mensaje_usuario_1": [],
-    "tools_habilitadas": ["consultar_base_conocimiento"]
+    "tools_habilitadas": [
+      "consultar_base_conocimiento"
+    ]
   },
   "cliente1": {
     "nombre": "Nike Store Palermo",
     "ttl_sesion_minutos": 60,
     "admin_phone": "54911XXXXXXXX",
+    "audio_transcripcion": false,
     "fuera_de_servicio": {
       "activo": false,
       "horario_inicio": "22:00",
       "horario_fin": "09:00",
-      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "dias_laborales": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
       "zona_horaria": "America/Argentina/Buenos_Aires",
       "mensaje": []
     },
-    "system_prompt": ["Eres un experto vendedor de Nike. Tu objetivo es vender, pero sin ser molesto.",
-    "\nREGLAS IMPORTANTES:\n1. Usa la herramienta 'consultar_inventario' SOLO si el usuario pide explícitamente un producto.",
-    "\n2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.",
-    "\n3. No asumas qué producto quiere el usuario si no lo ha mencionado."],
+    "system_prompt": [
+      "Eres un experto vendedor de Nike. Tu objetivo es vender, pero sin ser molesto.",
+      "\nREGLAS IMPORTANTES:\n1. Usa la herramienta 'consultar_inventario' SOLO si el usuario pide explícitamente un producto.",
+      "\n2. Si el usuario responde 'no', 'ninguno', 'gracias' o muestra desinterés, NO USES HERRAMIENTAS. Simplemente despídete amablemente o pregunta si necesita otra cosa.",
+      "\n3. No asumas qué producto quiere el usuario si no lo ha mencionado."
+    ],
     "mensaje_HITL": "",
     "mensaje_usuario_1": [],
     "tools_habilitadas": []
@@ -66,11 +100,19 @@
     "nombre": "Luigi's Pizza",
     "ttl_sesion_minutos": 6,
     "admin_phone": "5491131376731",
+    "audio_transcripcion": false,
     "fuera_de_servicio": {
       "activo": false,
       "horario_inicio": "09:00",
       "horario_fin": "23:00",
-      "dias_laborales": [1, 2, 3, 4, 5, 6],
+      "dias_laborales": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
       "zona_horaria": "America/Argentina/Buenos_Aires",
       "mensaje": []
     },
@@ -87,22 +129,36 @@
       "5. NO agregues texto antes ni después."
     ],
     "mensaje_HITL": "👨‍🍳 Veo que has solicitado hablar con una persona. No te preocupes, ya estoy avisando a nuestro equipo humano para que se contacte contigo lo antes posible. Adios! 🍕",
-    "mensaje_usuario_1": ["Gracias por contactarnos! Soy el asistente virtual de Luigi's Pizza. ¿En qué puedo ayudarte hoy?"],
-    "tools_habilitadas": ["ver_menu", "solicitar_atencion_humana"]
+    "mensaje_usuario_1": [
+      "Gracias por contactarnos! Soy el asistente virtual de Luigi's Pizza. ¿En qué puedo ayudarte hoy?"
+    ],
+    "tools_habilitadas": [
+      "ver_menu",
+      "solicitar_atencion_humana"
+    ]
   },
   "cliente4": {
     "nombre": "Sisnova Tech",
     "ttl_sesion_minutos": 60,
     "admin_phone": "54911XXXXXXXX",
+    "audio_transcripcion": false,
     "fuera_de_servicio": {
       "activo": true,
       "horario_inicio": "09:00",
       "horario_fin": "23:00",
-      "dias_laborales": [1, 2, 3, 4, 5],
+      "dias_laborales": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
       "zona_horaria": "America/Argentina/Buenos_Aires",
-      "mensaje": ["⏰ Hola! Gracias por contactarte con Sisnova.",
+      "mensaje": [
+        "⏰ Hola! Gracias por contactarte con Sisnova.",
         "Nuestro horario de atención es de lunes a viernes de 9:00 a 18:00 hs.",
-        "Lo contactaremos a la brevedad dentro del horario comercial. ¡Que tengas un excelente día!! 👋"]
+        "Lo contactaremos a la brevedad dentro del horario comercial. ¡Que tengas un excelente día!! 👋"
+      ]
     },
     "system_prompt": [
       "Eres el agente IA de Sisnova Tech. Somos una consultora especializada en Transformación Digital para Pymes, negocios y emprendimientos de Latinoamérica que necesitan resultados rápidos, medibles y sin complicaciones técnicas.",
@@ -112,7 +168,7 @@
       "- 🎯 Tu objetivo: lograr agendar una reunión de 30 min gratis por Google Meet cuando el cliente acepte.",
       "- 🎯 Utiliza el FLUJO OBLIGATORIO.",
       "- ❌ NO hagas preguntas genéricas como: \"¿En qué puedo ayudarte?\", \"¿Cómo puedo asistirte?\"",
-      "- ❌ NO ofrescas servicios que no hayan sido mencionados explícitamente aqui.",
+      "- ❌ NO ofrezcas servicios que no hayan sido mencionados explícitamente aqui.",
       "- 📋 Luego de agendar la reunión, el cliente recibirá un email automático con el link de Google Meet.",
       "- 📋 No ofrezcas agendar de nuevo una reunión si ya enviaste el link.",
       "- ✅ Responde siempre en español con un tono cálido y profesional, sin importar el idioma del usuario.",
@@ -162,6 +218,8 @@
       "",
       "¿Necesitas ayuda con algo más?\n\nSisnova - Atención 24/7"
     ],
-    "tools_habilitadas": ["trigger_booking_tool"]
+    "tools_habilitadas": [
+      "trigger_booking_tool"
+    ]
   }
 }
