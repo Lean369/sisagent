@@ -28,6 +28,7 @@ from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configur
 from tools_crm import trigger_booking_tool, consultar_stock, ver_menu
 from tools_hitl import solicitar_atencion_humana
 from tools_rag import consultar_base_conocimiento
+from tools_n8n import invoke_n8n
 from analytics import registrar_evento
 
 # Cargar .env
@@ -43,32 +44,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_openai_key")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "your_google_key")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "your_groq_key")
 
-# Configuración única de Logger con Loguru
-try:
-    # Intentamos remover el default solo si es la primera vez
-    logger.remove(0) 
-except ValueError:
-    pass # Ya estaba removido
-
-# 1. Salida en Consola (Colorida y legible)
-os.makedirs("logs", exist_ok=True)
-logger.add(
-    sys.stderr,
-    level="DEBUG",
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-)
-
-# 2. Archivo con ROTACIÓN (10 MB) y COMPRESIÓN (zip)
-# Esto guardará en la carpeta 'logs', rotará al llegar a 10MB y borrará logs de más de 20 días.
-logger.add(
-    "logs/sisagent_verbose.log",
-    rotation="10 MB",
-    retention="20 days",
-    compression="zip",
-    level="DEBUG",
-    encoding="utf-8"
-)
-
 logger.info("🚀 Iniciando la Agente AI...")
 
 
@@ -81,7 +56,8 @@ TOOLS_REGISTRY = {
     "ver_menu": ver_menu,
     "trigger_booking_tool": trigger_booking_tool,
     "solicitar_atencion_humana": solicitar_atencion_humana,
-    "consultar_base_conocimiento": consultar_base_conocimiento
+    "consultar_base_conocimiento": consultar_base_conocimiento,
+    "invoke_n8n": invoke_n8n    
 }
 
 # ==============================================================================

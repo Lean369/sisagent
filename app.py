@@ -1,11 +1,14 @@
+from loguru import logger
+from logger_config import inicializar_logger, generar_resumen_auditoria
 from flask import Flask, request, jsonify
 from flask import Response
+# 🚀 1. Inicializar el logger ANTES que el resto del sistema
+inicializar_logger()
 from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY
 from utilities import obtener_configuraciones
 from tools_hitl import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
 from ddos_protection import ddos_protection
-from loguru import logger
 import sys
 from agente import pool, workflow_builder # Importamos el builder, NO la app completa
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -17,8 +20,8 @@ import requests
 import json
 import os
 
-
 app = Flask(__name__)
+
 
 # Pool de threads para manejar múltiples mensajes en paralelo
 # CPU de 4 núcleos (max_workers=10)
@@ -45,6 +48,7 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
         "Content-Type": "application/json",
         "apikey": os.environ.get("EVOLUTION_API_KEY")
     }
+
     #logger.debug(f"[SND -> EVO] numero: {numero}, mensaje: {str(mensaje)[:50]}, instance_id: {instance_id}, instance_name: {instance_name}")
     # Detectar si el mensaje incluye botones
     is_button_message = isinstance(mensaje, dict) and mensaje.get('type') == 'button'
@@ -110,8 +114,11 @@ def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, insta
                 text = response.json()
             except Exception:
                 text = response.text
-
-            logger.debug(f"[SND -> EVO] Tried {endpoint_type} with candidate={candidate} status={status} response={str(text)[:200]}")
+            logger.debug(f"Sent: {endpoint_type} with candidate={candidate} status={status} response={str(text)[:200]}")
+            
+            telefono = numero.split('@')[0] if numero else "unknown"
+            msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {mensaje[:100]}..."
+            generar_resumen_auditoria(candidate, msg)
 
             # Llamar a findContacts para actualizar el contacto (si está habilitado)
             if os.environ.get("SEND_FIND_CONTACTS", "false").lower() == "true":
@@ -304,7 +311,8 @@ def worker_agente_ia_y_enviar(business_id, user_id, mensaje, push_name, instance
     1. Llama al Agente (Lento)
     2. Envía la respuesta por WhatsApp (I/O)
     """
-    try:
+    try:    
+
         # 1. Proceso Lento (IA)
         respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name)
         
@@ -345,7 +353,7 @@ def webhook():
     try:
         msg_id = "-"
         payload = request.json
-        logger.debug("[RCV <- EVO] Received webhook payload: {}", json.dumps(payload)[:500])
+        logger.info(f"📨 Received webhook payload: {json.dumps(payload)[:200]}")
         
         # Extraer información del mensaje de Evolution API
         if payload.get('event') == 'messages.upsert':
@@ -369,7 +377,10 @@ def webhook():
 
             # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
             business_id = payload.get('instance') or mensaje_data.get('instanceId') or None
-            logger.info(f"📨 Incomming message: {business_id} - ID: {msg_id}")
+
+            telefono = user_id.split('@')[0] if user_id else "unknown"
+            msg = f"[RCV <- EVO] 📨 TEL: {telefono} - MSG: {mensaje[:100]}..."
+            generar_resumen_auditoria(business_id, msg)
 
             # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
             if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
@@ -426,7 +437,7 @@ def webhook():
                     executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, payload.get('instance'))
         
         # Responder inmediatamente (sin esperar procesamiento)
-        logger.debug(f"📤 Responding to webhook immediately with 200 OK - ID: {msg_id}")
+        logger.debug(f"Responding to webhook immediately with 200 OK - ID: {msg_id}")
         return jsonify({"status": "accepted"}), 200
     
     except Exception as e:

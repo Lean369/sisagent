@@ -38,7 +38,7 @@ def obtener_configuraciones():
             _CONFIG_CACHE = nuevas_configuraciones
             _LAST_MTIME = current_mtime
             
-            logger.success(f"✅ Configuración recargada: {len(_CONFIG_CACHE)} negocios.")
+            logger.info(f"✅ Configuración recargada: {len(_CONFIG_CACHE)} negocios.")
             
             # (Opcional) Regenerar herramientas si cambian dinámicamente
             # obtener_todas_las_tools() 
