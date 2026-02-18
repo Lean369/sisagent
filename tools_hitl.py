@@ -59,7 +59,10 @@ def obtener_mensaje_admin(motivo, thread_id):
             f"{magic_link}"
             f"\n\n⚠️ *Intervenir ahora.*"
         )
+        logger.debug(f"Mensaje para admin generado: {msg_admin}")
+        
         return msg_admin
+
     except Exception as e:
         logger.error(f"Error generando mensaje para admin: {e}")
         return f"🚨 *SOLICITUD DE HUMANO*\n\nCliente: +{cliente_telefono}\nMotivo: {motivo}\n\n(No se pudo generar el enlace de reactivación, contacta al soporte.)"
@@ -69,7 +72,7 @@ def obtener_mensaje_admin(motivo, thread_id):
 class TriggerHITLToolInput(BaseModel):
     motivo: str = Field(description="El motivo de la derivación (ej: cliente enojado, consulta compleja, solicitud de humano).")
 
-@tool(args_schema=TriggerHITLToolInput)
+@tool("solicitar_atencion_humana", args_schema=TriggerHITLToolInput)
 def solicitar_atencion_humana(motivo: str, config: RunnableConfig) -> str:
     """
     Activa esta herramienta cuando el cliente pida hablar con un humano, 
@@ -150,3 +153,55 @@ def decodificar_token_reactivacion(token):
         raise ValueError("El enlace ha expirado. Genera uno nuevo.")
     except jwt.InvalidTokenError:
         raise ValueError("Token inválido o manipulado.")
+
+
+CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://tu-dominio-chatwoot.com")
+CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "tu_token_maestro_aqui")
+
+@tool
+def solicitar_atencion_humana_chatwoot(motivo: str, config: RunnableConfig) -> str:
+    """
+    Útil EXCLUSIVAMENTE cuando el usuario pide explícitamente hablar con un humano, 
+    o cuando estás atascado y no puedes resolver su problema (frustración).
+    Requiere un breve motivo de por qué se transfiere.
+    """
+    # 1. Extraemos los IDs desde la configuración inyectada por tu worker
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+
+    # Asumimos el formato: cliente1:5491131376731@Channel::Api@1@10
+    partes = thread_id.split("@")
+    if len(partes) != 4:
+        return "Error interno: Formato de hilo inválido para Chatwoot."
+    
+    account_id = partes[2]
+    conversation_id = partes[3]
+
+    # 2. Endpoint de Chatwoot para cambiar el estado de la conversación
+    url_status = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{account_id}/conversations/{conversation_id}/toggle_status"
+    
+    headers = {
+        "api_access_token": CHATWOOT_API_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        # 3. Cambiamos el estado a 'open' (Abierto para agentes humanos)
+        respuesta = requests.post(url_status, json={"status": "open"}, headers=headers, timeout=5)
+        respuesta.raise_for_status()
+        
+        # 4. (Opcional pero recomendado) Dejar una nota interna para el humano
+        url_nota = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{account_id}/conversations/{conversation_id}/messages"
+        requests.post(url_nota, json={
+            "content": f"🤖 Bot derivó esta charla. Motivo: {motivo}",
+            "message_type": "outgoing",
+            "private": True # CRÍTICO: El cliente final no lee esto, solo el humano en el panel
+        }, headers=headers)
+
+        logger.info(f"🔄 Conversación {conversation_id} derivada a humanos exitosamente.")
+        
+        # Le decimos al LLM qué pasó para que se despida
+        return "DERIVACION_EXITOSA_CHATWOOT. Despídete amablemente diciendo que un agente se conectará pronto."
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error derivando en Chatwoot: {e}")
+        return "No me fue posible contactar a un humano en este momento por un fallo de conexión."

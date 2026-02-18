@@ -33,115 +33,74 @@ logger.info("🔄 Iniciando app Flask...")
 DDOS_PROTECTION_ENABLED = os.getenv("DDOS_PROTECTION_ENABLED", "true").lower() == "true"
 
 
-def enviar_mensaje_whatsapp(numero: str, mensaje, instance_id: str = None, instance_name: str = None):
+def enviar_mensaje_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None, instance_id: str = None):
     """Envía un mensaje a través de Evolution API.
-    
-    Soporta:
-    - Mensajes de texto (str)
-    - Mensajes con botones (dict con type='button')
-
-    Intentará varios identificadores en orden: `instance_id` (UUID), `instance_name` (friendly name),
-    y finalmente la configuración `EVOLUTION_INSTANCE_ID`/`EVOLUTION_INSTANCE` desde el entorno.
-    Devuelve el JSON de respuesta en caso de éxito o el dict con status/text en error.
     """
-    headers = {
-        "Content-Type": "application/json",
-        "apikey": os.environ.get("EVOLUTION_API_KEY")
-    }
 
-    #logger.debug(f"[SND -> EVO] numero: {numero}, mensaje: {str(mensaje)[:50]}, instance_id: {instance_id}, instance_name: {instance_name}")
-    # Detectar si el mensaje incluye botones
-    is_button_message = isinstance(mensaje, dict) and mensaje.get('type') == 'button'
+    EVOLUTION_URL = os.environ.get("EVOLUTION_API_URL", "https://evoapi.sisnova.com.ar")
+    # headers = {
+    #     "Content-Type": "application/json",
+    #     "apikey": os.environ.get("EVOLUTION_API_KEY")
+    # }      
     
-    if not str(mensaje).strip():
-        logger.error("❌ Mensaje vacío. Usando fallback.")
-        mensaje = "El servicio no está disponible en este momento. Por favor, inténtalo más tarde."
+    # logger.debug(f"Instance_name: {instance_name} - instance_id: {instance_id}")
+    # logger.debug(f"Enviando mensaje a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
 
-    if is_button_message:
-        # Evolution API usa formato especial para botones con URLs
-        # Usamos sendText con el texto y agregamos el link al final
-        texto_mensaje = mensaje['content']['text']
-        boton = mensaje['content']['buttons'][0]  # Tomar el primer botón
-        url_boton = boton['url']
-        display_text = boton['displayText']
-        footer = mensaje['content'].get('footer', '')
-        
-        # Construir mensaje con formato especial para WhatsApp
-        mensaje_completo = f"{texto_mensaje}\n\n{display_text}\n{url_boton}"
-        if footer:
-            mensaje_completo += f"\n\n_{footer}_"
+    try:
+        # response = requests.post(
+        #     f"{evo_url}/message/sendText/{instance_name}", # Usamos la instancia del negocio
+        #     json={"number": numero_destino, "text": mensaje},
+        #     headers=headers
+        # )
+        url = f"{EVOLUTION_URL}/message/sendText/{nombre_instancia}"
+        headers = {"apikey": os.environ.get("EVOLUTION_API_KEY")}
         
         payload = {
-            "number": numero,
-            "text": mensaje_completo
+            # Evolution requiere el formato de número internacional sin el '+'
+            "number": f"{numero_destino}", 
+            "text": mensaje,
+            "options": {
+                "presence": "composing" # Muestra "Escribiendo..." en el celular del usuario
+            }
         }
-    else:
-        # Payload para mensajes de texto simple
-        payload = {
-            "number": numero,
-            "text": str(mensaje)
-        }
-
-    # Construir lista de candidatos para probar
-    candidates = []
-    if instance_id: candidates.append(str(instance_id))
-    if instance_name: candidates.append(str(instance_name))
-
-    # Añadir configuración desde entorno como último recurso
-    if os.environ.get("EVOLUTION_INSTANCE_ID"):
-        candidates.append(str(os.environ.get("EVOLUTION_INSTANCE_ID")))
-
-    if os.environ.get("EVOLUTION_INSTANCE") and os.environ.get("EVOLUTION_INSTANCE") not in candidates:
-        candidates.append(str(os.environ.get("EVOLUTION_INSTANCE")))
-
-    # Deduplicate preserving order
-    seen = set()
-    candidates = [c for c in candidates if not (c in seen or seen.add(c))]
-    logger.debug(f"Trying to send message to {numero} using candidates: {candidates}")
-    for candidate in candidates:
-        # Usar siempre sendText (Evolution API no tiene endpoint sendButtons separado)
-        EVOLUTION_API_URL = os.environ.get("EVOLUTION_API_URL", "https://evoapi.sisnova.com.ar")
-
-        url = f"{EVOLUTION_API_URL}/message/sendText/{candidate}"
-        endpoint_type = "sendText (with button link)" if is_button_message else "sendText"
+    
+        response = requests.post(url, json=payload, headers=headers)
+        status = response.status_code
         
+        # Log full body for non-2xx to help debugging
+        text = None
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=30.0, verify=False)
-            status = response.status_code
-            # Log full body for non-2xx to help debugging
-            text = None
-            try:
-                text = response.json()
-            except Exception:
-                text = response.text
-            logger.debug(f"Sent: {endpoint_type} with candidate={candidate} status={status} response={str(text)[:200]}")
+            text = response.json()
+        except Exception:
+            text = response.text
+        
+        logger.debug(f"Sent: with instance={nombre_instancia} status={status} response={str(text)[:200]}")
             
-            telefono = numero.split('@')[0] if numero else "unknown"
-            msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {mensaje[:100]}..."
-            generar_resumen_auditoria(candidate, msg)
+        telefono = numero_destino.split('@')[0] if numero_destino else "unknown"
+        msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {str(mensaje)[:100]}..."
+        generar_resumen_auditoria(nombre_instancia, msg)
 
-            # Llamar a findContacts para actualizar el contacto (si está habilitado)
-            if os.environ.get("SEND_FIND_CONTACTS", "false").lower() == "true":
-                logger.debug(f"Attempting to call findContacts for candidate={candidate} and numero={numero}")
-                url2 = f"{EVOLUTION_API_URL}/chat/findContacts/{candidate}"
-                payload2 = {
-                    "where": {
-                        "id": numero
-                    }
-                }
-                response2 = requests.post(url2, json=payload2, headers=headers, timeout=30.0, verify=False)
-                logger.debug(f"[SND -> EVO] findContacts response: {response2.status_code} {response2.text}")
+        # # Llamar a findContacts para actualizar el contacto (si está habilitado)
+        # if os.environ.get("SEND_FIND_CONTACTS", "false").lower() == "true":
+        #     logger.debug(f"Attempting to call findContacts for instance={nombre_instancia} and numero={numero}")
+        #     url2 = f"{EVOLUTION_API_URL}/chat/findContacts/{nombre_instancia}"
+        #     payload2 = {
+        #         "where": {
+        #             "id": numero_destino
+        #         }
+        #     }
+        #     response2 = requests.post(url2, json=payload2, headers=headers, timeout=30.0, verify=False)
+        #     logger.debug(f"[SND -> EVO] findContacts response: {response2.status_code} {response2.text}")
 
-            if 200 <= status < 300:
-                return text
-            # Continue trying next candidate on 4xx/5xx
-        except Exception as e:
-            logger.error(f"Exception when sending with candidate {candidate}: {e}")
-
-    # If none succeeded, return an informative structure
-    msg_type = "button message" if is_button_message else "text message"
-    logger.error(f"❌ All send attempts failed for number={numero} (type={msg_type}); tried={candidates}")
-    return {"status": "failed", "tried": candidates, "message_type": msg_type}
+        if 200 <= status < 300:
+            return text
+        else:
+            logger.error(f"❌ Evolution API error: status={status}, response={text}")
+            return {"status": status, "error": "Evolution API error", "response": text}
+            
+    except Exception as e:
+        logger.error(f"🔴 Exception when sending with instance {nombre_instancia}: {e}")
+        return {"status": "failed", "error": str(e)}
 
 
 def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]:
@@ -260,7 +219,7 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
     try:
         # 1. Datos obligatorios      
         if not user_id or not business_id or not mensaje:
-            logger.error("Faltan IDs o mensaje en adaptar_procesar_mensaje")
+            logger.error("❌ Faltan IDs o mensaje en adaptar_procesar_mensaje")
             return None # Retorna None o un string vacío para que el worker sepa que falló
 
         # 2. Crear Thread ID Único (Aislamiento de Memoria)
@@ -305,7 +264,7 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
         return  "No se pudo procesar su solicitud."
 
 
-def worker_agente_ia_y_enviar(business_id, user_id, mensaje, push_name, instance_id):
+def procesar_y_responder_evoapi(business_id, user_id, mensaje, push_name, instance_id):
     """
     Función que corre en background:
     1. Llama al Agente (Lento)
@@ -319,7 +278,7 @@ def worker_agente_ia_y_enviar(business_id, user_id, mensaje, push_name, instance
         # 2. Envío de respuesta
         if respuesta_ia:
             logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
-            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
+            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_id)
         else:
             logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
             #respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
@@ -337,23 +296,136 @@ def worker_procesar_audio(business_id, user_id, audio_url, audio_base64, push_na
         if texto_transcrito:
             logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50]}...")
             # 2. Reutilizamos el worker de texto existente para procesar con IA
-            worker_agente_ia_y_enviar(business_id, user_id, texto_transcrito, push_name, instance_id)
+            procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, instance_id)
         else:
             msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
-            enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id=instance_id)
+            enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
 
     except Exception as e:
         logger.error(f"🔴 Error procesando audio background: {e}")
 
 
-@app.route('/webhook', methods=['POST'])
+def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, telefono, business_id):
+    """
+    Envía la respuesta generada por LangGraph de vuelta a la conversación en Chatwoot.
+    """
+    CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://sischat.sisnova.com.ar/")
+    CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "your_chatwoot_api_token_here")
+
+    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{account_id}/conversations/{conversation_id}/messages"
+    
+    headers = {
+        "api_access_token": CHATWOOT_API_TOKEN,
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "content": texto_respuesta,
+        "message_type": "outgoing",
+        "private": False # Si es True, es una nota interna que el cliente no ve
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        logger.info(f"✅ Respuesta enviada a Chatwoot (Conv ID: {conversation_id})")
+
+        msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {texto_respuesta[:100]}..."
+        generar_resumen_auditoria(business_id, msg)
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"🔴 Error enviando a Chatwoot: {e}")
+
+
+def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", phone_number: str = ""):
+    """Función que corre en background para procesar mensajes de Chatwoot y responder"""
+
+    try:       
+        logger.debug(f"Procesando mensaje para Chatwoot user_id={user_id} (Conv ID: {conversation_id})")
+
+        # 1. Proceso Lento (IA)
+        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=client_name)
+            
+        # 2. Envío de respuesta
+        if respuesta_ia:
+            logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
+            enviar_mensaje_chatwoot(account_id, conversation_id, respuesta_ia, phone_number, business_id)
+        else:
+            logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
+
+    except Exception as e:
+        logger.error(f"🔴 Error en procesar_y_responder_chatwoot para {user_id}: {e}")
+
+
+@app.route('/webhook/chatwoot', methods=['POST'])
+def webhook_chatwoot():
+    try:
+        data = request.json
+        #logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:200]}")
+        logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)}")
+
+        # 1. Validar que el evento sea la creación de un mensaje
+        if data.get('event') != 'message_created':
+            logger.warning(f"⚠️ Evento ignorado: {data.get('event')}")
+            return jsonify({"status": "ignorado", "razon": "no es un mensaje"}), 200
+
+        # 2. Ignorar mensajes enviados por el bot o los agentes (evitar bucles infinitos)
+        if data.get('message_type') != 'incoming':
+            logger.warning(f"⚠️ Mensaje ignorado: message_type={data.get('message_type')}")
+            return jsonify({"status": "ignorado", "razon": "mensaje saliente"}), 200
+        
+        # Chatwoot maneja estos estados: 'open' (humano), 'resolved' (cerrada), 'pending', 'bot'
+        estado_conversacion = data.get('conversation', {}).get('status')
+        conversation_id = data.get('conversation', {}).get('id')
+
+        # Si la conversación está abierta (manejada por un humano), el bot hace silencio absoluto.
+        if estado_conversacion == 'open':
+            logger.info(f"🤫 Silencio. La conversación {conversation_id} está en manos de un humano.")
+            return jsonify({"status": "ignorado", "razon": "conversacion_abierta"}), 200
+
+        # 3. Extraer los datos clave del payload de Chatwoot
+        mensaje = data.get('content')
+        account_id = data.get('account', {}).get('id')
+        business_id = data.get('account', {}).get('name')
+        inbox_id = data.get('inbox', {}).get('id')
+        phone_number = str(data.get('sender', {}).get('phone_number'))
+        client_name = data.get('sender', {}).get('name') or phone_number or "unknown"
+        channel = data.get('conversation', {}).get('channel')
+        
+        msg = f"[RCV <- EVO] 📨 TEL: {phone_number} - MSG: {mensaje[:100]}..."
+        generar_resumen_auditoria(business_id, msg)
+
+        # 4. Generar el user_id para LangGraph usando el conversation_id
+        user_id = f"{phone_number.replace('+', '')}@{channel}@{account_id}@{conversation_id}" if phone_number else f"conv_{conversation_id}"
+        logger.debug(f"Extracted data - business_id: {business_id}, user_id: {user_id}, conversation_id: {conversation_id}, account_id: {account_id}")
+
+        # 5. Delegar al ThreadPool (igual que hacías con WhatsApp)
+        executor.submit(
+            procesar_y_responder_chatwoot, 
+            business_id, 
+            user_id, 
+            mensaje, 
+            conversation_id, 
+            account_id,
+            client_name,
+            phone_number
+        )
+
+        return jsonify({"status": "recibido"}), 200
+
+    except Exception as e:
+        logger.error(f"🔴 Error en webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/webhook/evoapi', methods=['POST'])
 def webhook():
     """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
 
     try:
         msg_id = "-"
         payload = request.json
-        logger.info(f"📨 Received webhook payload: {json.dumps(payload)[:200]}")
+        logger.info(f"📨 Received webhook payload: {json.dumps(payload)}")
         
         # Extraer información del mensaje de Evolution API
         if payload.get('event') == 'messages.upsert':
@@ -376,7 +448,8 @@ def webhook():
             push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
 
             # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
-            business_id = payload.get('instance') or mensaje_data.get('instanceId') or None
+            business_id = payload.get('instance') or None
+            instance_id = mensaje_data.get('instanceId') or None
 
             telefono = user_id.split('@')[0] if user_id else "unknown"
             msg = f"[RCV <- EVO] 📨 TEL: {telefono} - MSG: {mensaje[:100]}..."
@@ -395,7 +468,7 @@ def webhook():
             #[TEXTO] Procesar mensaje de texto normal
             if mensaje and user_id and not from_me:
                 logger.info(f"Incomming TEXT message from {user_id} ({push_name})")
-                executor.submit(worker_agente_ia_y_enviar, business_id, user_id, mensaje, push_name, payload.get('instance'))    
+                executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, instance_id)    
             else:
                 logger.debug("No es mensaje de texto o es de 'from_me', saltando procesamiento de texto.")
 
@@ -409,7 +482,7 @@ def webhook():
                 logger.info(f"Incomming {tipo_archivo.upper()} from {user_id} ({push_name}), requesting text message..")
                 # Enviar en background usando ThreadPool
                 msg = f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
-                executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, payload.get('instance'))
+                executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, instance_id)
             
             # [AUDIO] Si es un mensaje de audio
             if audio_message and not from_me and user_id:
@@ -417,8 +490,9 @@ def webhook():
                 audio_url = audio_message.get('url', '')
                 audio_base64 = audio_message.get('base64', '')
                 
+                
                 # Enviamos TODO al fondo inmediatamente
-                executor.submit(worker_procesar_audio, business_id, user_id, audio_url, audio_base64, push_name, payload.get('instance'))
+                executor.submit(worker_procesar_audio, business_id, user_id, audio_url, audio_base64, push_name, instance_id)
         
         # [LISTA] Soporte alternativo para formato con lista de mensajes
         for msg in payload.get("messages", []):
@@ -430,7 +504,7 @@ def webhook():
                 
                 if text and user_id and not from_me:
                     logger.info(f"Processing LIST message from {user_id} ({push_name})")
-                    executor.submit(worker_agente_ia_y_enviar, business_id, user_id, text, push_name, payload.get('instance'))  
+                    executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, instance_id)  
                 else:
                     logger.warning("⚠️[LIST] No se pudo procesar, enviando mensaje genérico")
                     msg = f"No pudimos procesar tu solicitud."
@@ -1023,20 +1097,28 @@ def ver_grafo_png():
     except Exception as e:
         return f"Error generando grafo: {str(e)}", 500
 
-    
+# curl -sS http://localhost:5001/health
+# curl -sS http://sisagent.sisnova.org/health
+@app.route('/health', methods=['GET'])
+def status():
+    logger.info("🔍 Health check endpoint called")
+    return jsonify({"status": "ok"}), 200
+
+
 logger.info("✅ App Flask iniciada.")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    # Flask es WSGI, no ASGI - usar app.run() directamente
     try:
-        # Ejecutar Flask con threading habilitado
         app.run(
             host='0.0.0.0',
-            port=5000,
-            threaded=True,  # Importante: es solo para desarrollo. En producción, usa Gunicorn
-            debug=False    # Cambiar a False en producción
+            port=5001,
+            threaded=True,  # Importante para manejar concurrencia
+            debug=False
         )
     except Exception as e:
-        logger.exception(f"🔴 Error de inicio a app: {e}")
+        logger.exception(f"🔴 Error iniciando Flask: {e}")
+
 
 # En producción, es recomendable usar Gunicorn con workers y threads configurados para manejar la concurrencia de manera eficiente:
 # gunicorn -w 4 --threads 10 -b 0.0.0.0:5000 app:app

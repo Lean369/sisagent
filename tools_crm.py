@@ -724,7 +724,7 @@ class TriggerBookingToolInput(BaseModel):
     cantidad_mensajes: int = Field(description="Cantidad de mensajes que recibe el negocio por día.")
 
 
-@tool(args_schema=TriggerBookingToolInput)
+@tool("trigger_booking_tool", args_schema=TriggerBookingToolInput)
 def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableConfig) -> str:
     """Activa las herramientas de reserva y registro de leads
     Devuelve confirmación inmediata de link de cita y sigue trabajando en segundo plano con CRM y Sheets.
@@ -790,20 +790,13 @@ def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableCon
 
 
 # --- EJEMPLO 1: Para la Pizzería ---
-class PedidoPizzaInput(BaseModel):
-    client_name: str = Field(description="El nombre del cliente que realiza el pedido.")
-    # gusto: str = Field(description="El sabor de la pizza que quiere el cliente (ej: Muzzarella, Napolitana).")
-    # cantidad: int = Field(description="La cantidad de pizzas solicitadas. Si no especifica, asume 1.")
-    # tamaño: str = Field(description="El tamaño: 'chica', 'grande' o 'familiar'.")
-
-
 # --- EJEMPLO 2: Para Zapatillas Nike ---
 class StockZapatillasInput(BaseModel):
     modelo: str = Field(description="El nombre del modelo de zapatilla (ej: Air Force, Jordan).")
     talle: float = Field(description="El talle numérico argentino (ej: 40, 42.5).")
 
 
-@tool(args_schema=StockZapatillasInput)
+@tool("consultar_stock", args_schema=StockZapatillasInput)
 def consultar_stock(modelo: str, talle: float):
     """Consulta el stock disponible en el inventario."""
     # Lógica de consulta a tu DB de stock
@@ -811,7 +804,11 @@ def consultar_stock(modelo: str, talle: float):
     return f"🔍 Buscando {modelo} en talle {talle}: Encontramos {stock} unidades."
 
 
-@tool(args_schema=PedidoPizzaInput)
+class VerMenuInput(BaseModel):
+    client_name: str = Field(description="El nombre del cliente que solicita el menú.")
+
+
+@tool("ver_menu", args_schema=VerMenuInput)
 def ver_menu(client_name: str) -> str:
     """Retorna el menú actual de Luigi's Pizza."""
     menu = (

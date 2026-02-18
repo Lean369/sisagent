@@ -1,0 +1,118 @@
+{
+  "account": { "id": 1, "name": "cliente1" },
+  "additional_attributes": {},
+  "content_attributes": {},
+  "content_type": "text",
+  "content": "zc",
+  "conversation": {
+    "additional_attributes": {},
+    "can_reply": true,
+    "channel": "Channel::Api",
+    "contact_inbox": {
+      "id": 50,
+      "contact_id": 24,
+      "inbox_id": 3,
+      "source_id": "144e96f8-e9e9-4ec4-8e69-5de759557abe",
+      "created_at": "2026-02-16T03:03:50.593Z",
+      "updated_at": "2026-02-16T03:03:50.593Z",
+      "hmac_verified": false,
+      "pubsub_token": "mNvhaVFDrxLDSonMkLBt4kCf"
+    },
+    "id": 8,
+    "inbox_id": 3,
+    "messages": [
+      {
+        "id": 616,
+        "content": "zc",
+        "account_id": 1,
+        "inbox_id": 3,
+        "conversation_id": 8,
+        "message_type": 0,
+        "created_at": 1771217697,
+        "updated_at": "2026-02-16T04:54:57.568Z",
+        "private": false,
+        "status": "sent",
+        "source_id": "WAID:3EB064FD5D5B47BC22ADB2",
+        "content_type": "text",
+        "content_attributes": {},
+        "sender_type": "Contact",
+        "sender_id": 24,
+        "external_source_ids": {},
+        "additional_attributes": {},
+        "processed_message_content": "zc",
+        "sentiment": {},
+        "conversation": {
+          "assignee_id": null,
+          "unread_count": 1,
+          "last_activity_at": 1771217697,
+          "contact_inbox": {
+            "source_id": "144e96f8-e9e9-4ec4-8e69-5de759557abe"
+          }
+        },
+        "sender": {
+          "additional_attributes": {},
+          "custom_attributes": {},
+          "email": null,
+          "id": 24,
+          "identifier": "5491131376731@s.whatsapp.net",
+          "name": "Leandro",
+          "phone_number": "+5491131376731",
+          "thumbnail": "",
+          "blocked": false,
+          "type": "contact"
+        }
+      }
+    ],
+    "labels": [],
+    "meta": {
+      "sender": {
+        "additional_attributes": {},
+        "custom_attributes": {},
+        "email": null,
+        "id": 24,
+        "identifier": "5491131376731@s.whatsapp.net",
+        "name": "Leandro",
+        "phone_number": "+5491131376731",
+        "thumbnail": "",
+        "blocked": false,
+        "type": "contact"
+      },
+      "assignee": null,
+      "team": null,
+      "hmac_verified": false
+    },
+    "status": "open",
+    "custom_attributes": {},
+    "snoozed_until": null,
+    "unread_count": 1,
+    "first_reply_created_at": "2026-02-16T03:04:05.841Z",
+    "priority": null,
+    "waiting_since": 1771216505,
+    "agent_last_seen_at": 1771217452,
+    "contact_last_seen_at": 0,
+    "last_activity_at": 1771217697,
+    "timestamp": 1771217697,
+    "created_at": 1771211030,
+    "updated_at": 1771217697.571239
+  },
+  "created_at": "2026-02-16T04:54:57.568Z",
+  "id": 616,
+  "inbox": { "id": 3, "name": "SisnovaWS" },
+  "message_type": "incoming",
+  "private": false,
+  "sender": {
+    "account": { "id": 1, "name": "cliente1" },
+    "additional_attributes": {},
+    "avatar": "",
+    "custom_attributes": {},
+    "email": null,
+    "id": 24,
+    "identifier": "5491131376731@s.whatsapp.net",
+    "name": "Leandro",
+    "phone_number": "+5491131376731",
+    "thumbnail": "",
+    "blocked": false
+  },
+  "source_id": "WAID:3EB064FD5D5B47BC22ADB2",
+  "event": "message_created"
+}

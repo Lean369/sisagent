@@ -187,9 +187,23 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     mis_tools = []
     for tool_nombre in tools_nombres:
         if isinstance(tool_nombre, str) and tool_nombre in TOOLS_REGISTRY:
-            mis_tools.append(TOOLS_REGISTRY[tool_nombre])
+            tool_obj = TOOLS_REGISTRY[tool_nombre]
+            # Validar que la herramienta tenga un nombre
+            if not hasattr(tool_obj, 'name') or not tool_obj.name:
+                logger.error(f"🔴 Herramienta '{tool_nombre}' no tiene atributo 'name' válido")
+                continue
+            mis_tools.append(tool_obj)
         elif not isinstance(tool_nombre, str):
-            mis_tools.append(tool_nombre) 
+            # Validar que el objeto tenga nombre
+            if hasattr(tool_nombre, 'name') and tool_nombre.name:
+                mis_tools.append(tool_nombre)
+            else:
+                logger.error(f"🔴 Objeto tool sin nombre válido: {type(tool_nombre)}") 
+
+    # 5. Preparar el prompt del sistema dinámico con la configuración del negocio
+    # Si solo hay 1 mensaje, significa que la charla acaba de empezar
+    if len(mensajes_historia) == 1:
+        logger.info("👋 Detectada nueva conversación.")
 
     prompt_sistema = info_negocio['system_prompt'] if info_negocio else "Eres un asistente útil."
     if isinstance(prompt_sistema, list):
@@ -197,7 +211,8 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     else:
         prompt_sistema_unido = prompt_sistema
 
-    if len(nombre_cliente) > 3:
+    CLIENT_NAME_IN_CONTEXT = os.getenv("CLIENT_NAME_IN_CONTEXT", "false").lower()
+    if len(nombre_cliente) > 3 and CLIENT_NAME_IN_CONTEXT == "true":
         prompt_final = (
         f"{prompt_sistema_unido}\n"
         f"DATOS DE CONTEXTO:\n"
@@ -206,16 +221,30 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     else:
         prompt_final = prompt_sistema_unido
 
+    INTERNAL_CLOCK_IN_CONTEXT = os.getenv("INTERNAL_CLOCK_IN_CONTEXT", "false").lower()
+    if INTERNAL_CLOCK_IN_CONTEXT == "true":
+        ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        dia_semana = datetime.datetime.now().strftime("%A") # Ej: Monday, Tuesday.
+        prompt_final = (
+        f"{prompt_final}\n"
+        f"RELOJ INTERNO: Hoy es {dia_semana}, {ahora}.\n"
+    )
+
     #logger.debug(f"📝 Prompt final para {business_id}:\n{prompt_final}")
 
     # 5. VINCULACIÓN DINÁMICA (Aquí ocurre la magia ✨)
     if mis_tools:
         # Creamos una instancia temporal del LLM que solo conoce estas tools
-        llm_actual = llm_primary.bind_tools(mis_tools)
-        llm_backup_actual = llm_backup.bind_tools(mis_tools)
-        logger.info(f"🔧 Vinculadas {len(mis_tools)} herramientas para {business_id}")
-        for tool in mis_tools:
-            logger.info(f"Tool vinculada: {tool.name}")
+        try:
+            llm_actual = llm_primary.bind_tools(mis_tools)
+            llm_backup_actual = llm_backup.bind_tools(mis_tools)
+            logger.info(f"🔧 Vinculadas {len(mis_tools)} herramientas para {business_id}")
+            for tool in mis_tools:
+                logger.info(f"Tool vinculada: {tool.name}")
+        except Exception as e:
+            logger.error(f"🔴 Error vinculando herramientas para {business_id}: {e}")
+            logger.error(f"Herramientas problemáticas: {[getattr(t, 'name', str(t)) for t in mis_tools]}")
+            raise
     else:
         # Si no hay tools, usamos el modelo base sin capacidades extra
         llm_actual = llm_primary

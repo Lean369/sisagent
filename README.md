@@ -2120,3 +2120,36 @@ RAM estimada	                ~1GB	~2GB	~3GB
 Mensajes/minuto (2s cada uno)	~300	~600	~900
 CPU recomendada	                2+ cores	4+ cores	8+ cores
 
+Migración de arquitectura:
+
+sisagent/
+├── app/                        # ← Aquí va casi toda la lógica principal de negocio
+│   ├── __init__.py             # Crea la app, registra blueprints, inicializa extensiones
+│   ├── blueprints/             # Módulos independientes (cada uno tiene su propia lógica)
+│   │   ├── auth/               # Lógica de autenticación
+│   │   │   ├── __init__.py
+│   │   │   ├── routes.py       # Rutas y vistas (controladores)
+│   │   │   ├── forms.py        # Formularios WTForms
+│   │   │   ├── models.py       # Modelos SQLAlchemy específicos de auth (opcional)
+│   │   │   └── services.py     # ← Lógica de negocio de autenticación (recomendado)
+│   │   ├── dashboard/
+│   │   │   ├── routes.py
+│   │   │   └── services.py     # ← Lógica principal del dashboard
+│   │   └── api/
+│   │       ├── routes.py       # Endpoints API
+│   │       └── services.py     # ← Lógica de negocio de la API
+│   ├── core/                   # Lógica transversal / reutilizable en toda la app
+│   │   ├── services/           # ← Aquí va la lógica principal global
+│   │   │   ├── agent.py
+│   │   │   ├── analytics.py
+│   │   │   ├── tools_crm.py
+│   │   │   └── ddos_protection.py
+│   │   └── utils/              # Helpers, validadores, etc.
+│   ├── models/                 # Modelos SQLAlchemy globales (User, Role, etc.)
+│   ├── templates/              # Plantillas base y globales
+│   └── extensions.py           # Inicialización de db, login, etc.
+├── config.py                   # Configuraciones (no lógica)
+├── run.py                      # Solo crea y ejecuta la app (mínima lógica)
+├── .env                        # Variables de entorno (configuración, no lógica)
+├── .gitignore
+└── migrations/                 # Migraciones de Alembic

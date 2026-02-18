@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 URL_WEBHOOK_N8N = os.getenv("URL_WEBHOOK_N8N", "http://localhost:5678/webhook/tu_webhook_aqui")
 
-@tool
+@tool("invoke_n8n")
 def invoke_n8n(nombre: str, telefono: str) -> str:
     """
     Útil para crear un nuevo cliente potencial o lead.

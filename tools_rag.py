@@ -11,7 +11,7 @@ embedding_function = OpenAIEmbeddings(model="text-embedding-3-small")
 vector_store = Chroma(persist_directory=DB_PATH, embedding_function=embedding_function)
 
 
-@tool
+@tool("consultar_base_conocimiento")
 def consultar_base_conocimiento(pregunta: str, business_id: str) -> str:
     """
     Útil para responder preguntas sobre productos, precios, políticas, manuales 

@@ -68,10 +68,10 @@ start() {
         echo -e "${GREEN}✅ Agente iniciado correctamente (PID: $pid)${NC}"
         
         # Verificar health endpoint
-        if curl -s http://localhost:5000/health >/dev/null 2>&1; then
-            echo -e "${GREEN}✅ Health check OK${NC}"
+        if curl -s http://localhost:5001/health >/dev/null 2>&1; then
+            echo -e "${GREEN}✅ Health check OK (puerto 5001)${NC}"
         else
-            echo -e "${YELLOW}⚠️  El agente está corriendo pero no responde en puerto 5000${NC}"
+            echo -e "${YELLOW}⚠️  El agente está corriendo pero no responde en puerto 5001${NC}"
             echo "   Revisa: tail -f $LOG_FILE"
         fi
         return 0
@@ -136,7 +136,8 @@ status() {
         local pid=$(get_agent_pid)
         echo -e "${GREEN}✅ Agente corriendo${NC}"
         echo "   PID: $pid"
-        echo "   Puerto: 5000"
+        echo "   Puerto: 5001 (Flask directo)"
+        echo "   Puerto: 5000 (Nginx proxy)"
         
         # Mostrar uso de memoria
         local mem=$(ps -p $pid -o rss= 2>/dev/null)
@@ -146,7 +147,7 @@ status() {
         fi
         
         # Verificar health
-        if curl -s http://localhost:5000/health >/dev/null 2>&1; then
+        if curl -s http://localhost:5001/health >/dev/null 2>&1; then
             echo -e "   Health: ${GREEN}OK${NC}"
         else
             echo -e "   Health: ${RED}NO RESPONDE${NC}"
