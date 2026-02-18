@@ -12,6 +12,14 @@
         "input": 0.50,
         "output": 1.50
         },
+        "whisper-1": {
+        "input": 0,
+        "output": 0.006
+        },
+        "gpt-4o-mini-transcribe": {
+        "input": 0,
+        "output": 0.003
+        },
         "gemini-1.5-flash": {
         "input": 0.075,
         "output": 0.30

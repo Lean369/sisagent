@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 from flask import Response
 # 🚀 1. Inicializar el logger ANTES que el resto del sistema
 inicializar_logger()
-from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY
+from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY, transcribir_audio
 from utilities import obtener_configuraciones
 from tools_hitl import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
@@ -19,6 +19,10 @@ import httpx
 import requests
 import json
 import os
+import base64
+import io
+from evolutionapi.client import EvolutionClient  # del paquete oficial
+
 
 app = Flask(__name__)
 
@@ -31,29 +35,18 @@ executor = ThreadPoolExecutor(max_workers=10)  # CPU de 2 núcleos - 10 mensajes
 logger.info("🔄 Iniciando app Flask...")
 
 DDOS_PROTECTION_ENABLED = os.getenv("DDOS_PROTECTION_ENABLED", "true").lower() == "true"
+EVOLUTION_URL = os.environ.get("EVOLUTION_API_URL", "https://evoapi.sisnova.com.ar")
+EVOLUTION_API_KEY = os.environ.get("EVOLUTION_API_KEY")
 
+client = EvolutionClient(base_url=EVOLUTION_URL, api_token=EVOLUTION_API_KEY)
 
 def enviar_mensaje_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None, instance_id: str = None):
-    """Envía un mensaje a través de Evolution API.
+    """Envía un mensaje a través del cliente de Evolution API.
     """
-
-    EVOLUTION_URL = os.environ.get("EVOLUTION_API_URL", "https://evoapi.sisnova.com.ar")
-    # headers = {
-    #     "Content-Type": "application/json",
-    #     "apikey": os.environ.get("EVOLUTION_API_KEY")
-    # }      
-    
-    # logger.debug(f"Instance_name: {instance_name} - instance_id: {instance_id}")
-    # logger.debug(f"Enviando mensaje a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
+    logger.debug(f"Enviando mensaje a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
 
     try:
-        # response = requests.post(
-        #     f"{evo_url}/message/sendText/{instance_name}", # Usamos la instancia del negocio
-        #     json={"number": numero_destino, "text": mensaje},
-        #     headers=headers
-        # )
-        url = f"{EVOLUTION_URL}/message/sendText/{nombre_instancia}"
-        headers = {"apikey": os.environ.get("EVOLUTION_API_KEY")}
+        endpoint = f"message/sendText/{nombre_instancia}"
         
         payload = {
             # Evolution requiere el formato de número internacional sin el '+'
@@ -64,154 +57,29 @@ def enviar_mensaje_whatsapp(numero_destino: str, mensaje, nombre_instancia: str 
             }
         }
     
-        response = requests.post(url, json=payload, headers=headers)
-        status = response.status_code
+        response = client.post(endpoint, data=payload)
         
-        # Log full body for non-2xx to help debugging
-        text = None
-        try:
-            text = response.json()
-        except Exception:
-            text = response.text
+        if not response:
+            logger.error(f"❌ Evolution client returned empty response")
+            return {"status": "failed", "error": "Empty response from Evolution API"}
         
-        logger.debug(f"Sent: with instance={nombre_instancia} status={status} response={str(text)[:200]}")
+        logger.debug(f"Sent: with instance={nombre_instancia} response={str(response)[:200]}")
             
         telefono = numero_destino.split('@')[0] if numero_destino else "unknown"
         msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {str(mensaje)[:100]}..."
         generar_resumen_auditoria(nombre_instancia, msg)
 
-        # # Llamar a findContacts para actualizar el contacto (si está habilitado)
-        # if os.environ.get("SEND_FIND_CONTACTS", "false").lower() == "true":
-        #     logger.debug(f"Attempting to call findContacts for instance={nombre_instancia} and numero={numero}")
-        #     url2 = f"{EVOLUTION_API_URL}/chat/findContacts/{nombre_instancia}"
-        #     payload2 = {
-        #         "where": {
-        #             "id": numero_destino
-        #         }
-        #     }
-        #     response2 = requests.post(url2, json=payload2, headers=headers, timeout=30.0, verify=False)
-        #     logger.debug(f"[SND -> EVO] findContacts response: {response2.status_code} {response2.text}")
-
-        if 200 <= status < 300:
-            return text
+        # Verificar si la respuesta indica éxito
+        if isinstance(response, dict) and response.get("key"):
+            # Respuesta exitosa con message key
+            return response
         else:
-            logger.error(f"❌ Evolution API error: status={status}, response={text}")
-            return {"status": status, "error": "Evolution API error", "response": text}
+            logger.error(f"❌ Evolution API error: response={response}")
+            return {"status": "failed", "error": "Evolution API error", "response": response}
             
     except Exception as e:
         logger.error(f"🔴 Exception when sending with instance {nombre_instancia}: {e}")
         return {"status": "failed", "error": str(e)}
-
-
-def transcribir_audio(audio_url: str, audio_base64: str = None) -> Optional[str]:
-    """
-    Transcribe un mensaje de audio a texto
-    
-    Args:
-        audio_url: URL del archivo de audio (puede estar encriptado de WhatsApp)
-        audio_base64: Audio en base64 (alternativa a URL)
-    
-    Returns:
-        Texto transcrito o None si hay error
-    """
-    try:
-        TRANSCRIPTION_ENABLED = os.getenv("TRANSCRIPTION_ENABLED", "true").lower() == "true"
-        TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")
-        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-        if not TRANSCRIPTION_ENABLED:
-            logger.warning("⚠️ [AUDIO] Transcripción deshabilitada")
-            return None
-        
-        logger.info(f"[AUDIO] Iniciando transcripción de audio")
-        
-        import tempfile
-        import base64
-        
-        # Descargar o decodificar el audio
-        audio_data = None
-        
-        if audio_base64:
-            logger.debug("[AUDIO] Decodificando audio desde base64")
-            audio_data = base64.b64decode(audio_base64)
-        elif audio_url:
-            logger.debug(f"[AUDIO] Descargando audio desde URL: {audio_url[:50]}...")
-            response = requests.get(audio_url, timeout=30.0, verify=False)
-            if response.status_code == 200:
-                audio_data = response.content
-            else:
-                logger.error(f"❌ [AUDIO] Error descargando audio: status={response.status_code}")
-                return None
-        
-        if not audio_data:
-            logger.error("❌ [AUDIO] No se pudo obtener datos de audio")
-            return None
-        
-        # Guardar temporalmente el audio
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.ogg') as temp_audio:
-            temp_audio.write(audio_data)
-            temp_audio_path = temp_audio.name
-        
-        logger.debug(f"[AUDIO] Audio guardado temporalmente en {temp_audio_path}")
-        
-        # Convertir OGG a MP3 usando ffmpeg (formato compatible con OpenAI)
-        import subprocess
-        mp3_path = temp_audio_path.replace('.ogg', '.mp3')
-        
-        try:
-            logger.debug("[AUDIO] Convirtiendo OGG a MP3...")
-            subprocess.run(
-                ['ffmpeg', '-i', temp_audio_path, '-acodec', 'libmp3lame', '-ar', '16000', mp3_path, '-y'],
-                check=True,
-                capture_output=True
-            )
-            logger.debug(f"[AUDIO] Audio convertido a {mp3_path}")
-            audio_path_to_use = mp3_path
-        except Exception as conv_error:
-            logger.warning(f"⚠️ [AUDIO] Error convirtiendo audio: {conv_error}, usando archivo original")
-            audio_path_to_use = temp_audio_path
-        
-        # Transcribir según el proveedor
-        transcription = None
-        
-        if TRANSCRIPTION_PROVIDER == "openai":
-            logger.debug("[AUDIO] Usando OpenAI Whisper API")
-            from openai import OpenAI
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            
-            with open(audio_path_to_use, 'rb') as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="es"  # Español
-                )
-                transcription = transcript.text
-        
-        elif TRANSCRIPTION_PROVIDER == "whisper-local":
-            logger.debug("[AUDIO] Usando Whisper local")
-            import whisper
-            model = whisper.load_model("base")
-            result = model.transcribe(audio_path_to_use, language="es")
-            transcription = result["text"]
-        
-        # Limpiar archivos temporales
-        try:
-            os.unlink(temp_audio_path)
-            if audio_path_to_use != temp_audio_path and os.path.exists(audio_path_to_use):
-                os.unlink(audio_path_to_use)
-        except Exception as e:
-            logger.error(f"⚠️ [AUDIO] Error limpiando archivos temporales: {e}")
-        
-        if transcription:
-            logger.info(f"[AUDIO] Transcripción exitosa: {transcription[:100]}...")
-            return transcription
-        else:
-            logger.error("❌ [AUDIO] No se obtuvo transcripción")
-            return None
-            
-    except Exception as e:
-        logger.error(f"🔴 [AUDIO] Error transcribiendo audio: {e}")
-        return None
 
 
 def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, client_name: str = "") -> str:
@@ -288,21 +156,72 @@ def procesar_y_responder_evoapi(business_id, user_id, mensaje, push_name, instan
         logger.error(f"🔴 Error en worker background para {user_id}: {e}")
 
 
-def worker_procesar_audio(business_id, user_id, audio_url, audio_base64, push_name, instance_id):
+def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, instance_id):
     try:
-        # 1. Transcribir (Lento)
-        texto_transcrito = transcribir_audio(audio_url, audio_base64)
+        logger.debug(f"[AUDIO] Procesando audio para {user_id}, instance={business_id}")
+        telefono = user_id.split("@")[0]    
+        # Usar el cliente evolutionapi para obtener el audio en base64
+        # https://doc.evolution-api.com/v2/en/endpoints/messages#get-media
+        endpoint = f"chat/getBase64FromMediaMessage/{business_id}"
+        # Evolution necesita el objeto data completo (key + message + metadata)
+        payload_media = {
+            "message": {
+                "key": mensaje.get("key"),
+                "message": mensaje.get("message")
+            },
+            "convertToMp4": False  # Mantener formato original (ogg opus)
+        }
         
-        if texto_transcrito:
-            logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50]}...")
-            # 2. Reutilizamos el worker de texto existente para procesar con IA
-            procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, instance_id)
-        else:
-            msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
+        logger.debug(f"[AUDIO] Solicitando descarga de media usando evolutionapi client...")
+        
+        try:
+            response = client.post(endpoint, data=payload_media)
+            
+            if not response or not isinstance(response, dict):
+                logger.error(f"❌ [AUDIO] Respuesta inválida del cliente: {response}")
+                msg = "Disculpa, tuve problemas para procesar tu audio. ¿Podrías escribirlo? 📝"
+                enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+                return
+            
+            base64_audio = response.get("base64")
+            
+            if not base64_audio:
+                logger.error(f"❌ [AUDIO] No se recibió base64 en la respuesta: {response}")
+                msg = "Disculpa, no pude procesar tu audio. ¿Podrías escribirlo? 📝"
+                enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+                return
+            
+            # Decodificar el base64 a bytes PRIMERO
+            audio_buffer = base64.b64decode(base64_audio)
+            logger.info(f"[AUDIO] Audio descargado: {len(audio_buffer)} bytes")
+
+            # 1. Transcribir (Lento)
+            texto_transcrito = transcribir_audio(audio_buffer, thread_id=f"{business_id}:{user_id}")
+            
+            if texto_transcrito:
+                # logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50].replace('\n', ' ')}")
+                msg = f"[RCV <- EVO] 🔊 TEL: {telefono} - MSG: {texto_transcrito[:100].replace('\n', ' ')}"
+                generar_resumen_auditoria(business_id, msg)
+                # 2. Reutilizamos el worker de texto existente para procesar con IA
+                procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, instance_id)
+            else:
+                msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
+                enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+                
+        except Exception as api_error:
+            logger.error(f"❌ [AUDIO] Error llamando API Evolution: {api_error}")
+            msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
             enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
 
     except Exception as e:
         logger.error(f"🔴 Error procesando audio background: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
+            enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+        except:
+            pass  # Evitar errores en cascada
 
 
 def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, telefono, business_id):
@@ -446,14 +365,11 @@ def webhook():
             from_me = mensaje_data.get('key', {}).get('fromMe', False)
             msg_id = mensaje_data.get('key', {}).get('id', '-')
             push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
+            telefono = user_id.split('@')[0] if user_id else "unknown"
 
             # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
             business_id = payload.get('instance') or None
             instance_id = mensaje_data.get('instanceId') or None
-
-            telefono = user_id.split('@')[0] if user_id else "unknown"
-            msg = f"[RCV <- EVO] 📨 TEL: {telefono} - MSG: {mensaje[:100]}..."
-            generar_resumen_auditoria(business_id, msg)
 
             # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
             if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
@@ -466,8 +382,9 @@ def webhook():
                     logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
             
             #[TEXTO] Procesar mensaje de texto normal
-            if mensaje and user_id and not from_me:
-                logger.info(f"Incomming TEXT message from {user_id} ({push_name})")
+            if mensaje and user_id and not from_me:          
+                msg = f"[RCV <- EVO] 📨 TEL: {telefono} - MSG: {mensaje[:100]}..."
+                generar_resumen_auditoria(business_id, msg)
                 executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, instance_id)    
             else:
                 logger.debug("No es mensaje de texto o es de 'from_me', saltando procesamiento de texto.")
@@ -485,14 +402,8 @@ def webhook():
                 executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, instance_id)
             
             # [AUDIO] Si es un mensaje de audio
-            if audio_message and not from_me and user_id:
-                logger.info(f"🔊 Recibido AUDIO de {user_id}. Procesando en background...")
-                audio_url = audio_message.get('url', '')
-                audio_base64 = audio_message.get('base64', '')
-                
-                
-                # Enviamos TODO al fondo inmediatamente
-                executor.submit(worker_procesar_audio, business_id, user_id, audio_url, audio_base64, push_name, instance_id)
+            if audio_message and audio_message.get("ptt") and not from_me and user_id:
+                executor.submit(worker_procesar_audio, business_id, user_id, msg_id, mensaje_data, push_name, instance_id)
         
         # [LISTA] Soporte alternativo para formato con lista de mensajes
         for msg in payload.get("messages", []):
@@ -501,9 +412,11 @@ def webhook():
                 text = msg["message"]["conversation"]
                 from_me = msg["key"].get("fromMe", False)
                 push_name = msg.get('pushName', '') or msg.get('verifiedBizName', '')
+                telefono = user_id.split('@')[0] if user_id else "unknown"
                 
                 if text and user_id and not from_me:
-                    logger.info(f"Processing LIST message from {user_id} ({push_name})")
+                    msg = f"[RCV <- EVO] 📄 TEL: {telefono} - MSG: {text[:100]}..."
+                    generar_resumen_auditoria(business_id, msg)
                     executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, instance_id)  
                 else:
                     logger.warning("⚠️[LIST] No se pudo procesar, enviando mensaje genérico")

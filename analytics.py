@@ -34,7 +34,7 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
         # 1. Normalización del objeto mensaje/result
         mensaje = None
         metadata = {}
-
+        logger.debug(f"🔍 Analizando resultado para métricas: {result}")
         # Caso A: Result es un objeto AIMessage directo (invoke del LLM)
         if isinstance(result, BaseMessage):
             mensaje = result
@@ -49,74 +49,124 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
             mensaje = result[-1]
             if hasattr(mensaje, 'response_metadata'):
                 metadata = mensaje.response_metadata
+        # Caso D: Dict con clave 'response_metadata' (estructura de transcripción de audio)
+        elif isinstance(result, dict) and "response_metadata" in result:
+            metadata = result["response_metadata"]
+            mensaje = result  # El diccionario completo es el "mensaje"
 
-        if not mensaje: return []
+        if not mensaje: 
+            logger.warning(f"⚠️ No se pudo identificar un mensaje válido para extraer métricas: {result}")
+            return []
 
         # 2. Extracción de Tokens
         usage = None
-        if hasattr(mensaje, 'usage_metadata') and mensaje.usage_metadata:
-            usage = mensaje.usage_metadata
+        if hasattr(mensaje, 'response_metadata') and mensaje.response_metadata:
+            # Extraer token_usage o usage_metadata del response_metadata
+            usage = mensaje.response_metadata.get('token_usage') or mensaje.response_metadata.get('usage_metadata')
         elif metadata: # Fallback a metadata antigua
             usage = metadata.get('token_usage') or metadata.get('usage_metadata')
 
+        # Manejo especial para métricas de transcripción (diccionarios)
+        if isinstance(mensaje, dict) and 'usage_transcription' in mensaje:
+            usage = mensaje.get('usage_transcription')
+        elif hasattr(mensaje, 'usage_transcription') and mensaje.usage_transcription:
+            usage = mensaje.usage_transcription
+
         if usage:
-            input_tokens = usage.get('input_tokens', 0)
-            output_tokens = usage.get('output_tokens', 0)
-            total_tokens = usage.get('total_tokens', 0)
+            # Verificar si es transcripción de audio o LLM normal
+            is_transcription = 'duration_minutes' in usage
+            
+            if is_transcription:
+                # Para transcripción de audio (Whisper)
+                duration_minutes = usage.get('duration_minutes', 0)
+                input_tokens = 0
+                output_tokens = 0
+                total_tokens = 0
+                
+                # Extraer model_name de metadata o del mismo usage
+                if isinstance(mensaje, dict) and 'response_metadata' in mensaje:
+                    model_name = mensaje['response_metadata'].get('model_name', 'whisper-1').lower()
+                else:
+                    model_name = metadata.get('model_name', 'whisper-1').lower()
+                
+                if model_name == "gpt-4o-mini-transcribe":
+                    costo_total = duration_minutes * 0.003  
+                elif model_name == "whisper-1":
+                    costo_total = duration_minutes * 0.006  
 
-            # 3. Detección de Modelo y Precio
-            model_name = metadata.get('model_name', '').lower()
-            
-            # Buscamos el precio en el diccionario usando coincidencia parcial
-            # (Ej: "gpt-4o-mini-2024" coincidirá con "gpt-4o-mini")
-            costos = None
-            for key, precios in MODEL_PRICING.items():
-                if key in model_name:
-                    costos = precios
-                    break
-            
-            # Cálculo del costo
-            if costos:
-                costo_input = (input_tokens / 1_000_000) * costos["input"]
-                costo_output = (output_tokens / 1_000_000) * costos["output"]
-                costo_total = costo_input + costo_output
-                str_costo = f"${costo_total:.6f} USD"
+                logger.info(
+                    f"💰 TRANSCRIPTION USAGE [{thread_id}] ({model_name}): "
+                    f"Duration={duration_minutes:.3f} min | "
+                    f"Costo: ${costo_total:.6f} USD | "
+                    f"Latency: {latency_ms}ms"
+                )
             else:
-                logger.warning(f"⚠️ Modelo no reconocido para cálculo de costos: {model_name}")
-                costo_input = (input_tokens / 1_000_000) * 0.15
-                costo_output = (output_tokens / 1_000_000) * 0.60
-                costo_total = costo_input + costo_output
-                str_costo = f"${costo_total:.6f} USD"
+                # Para LLM normal (tokens)
+                # Diferentes proveedores usan diferentes nombres de claves
+                input_tokens = usage.get('input_tokens') or usage.get('prompt_tokens', 0)
+                output_tokens = usage.get('output_tokens') or usage.get('completion_tokens', 0)
+                total_tokens = usage.get('total_tokens', 0)
 
-            logger.info(
-                f"💰 TOKEN USAGE [{thread_id}] ({model_name}): "
-                f"In={input_tokens} | Out={output_tokens} | Total={total_tokens} | "
-                f"Costo: {str_costo} | Latency: {latency_ms}ms"
-            )
+                # 3. Detección de Modelo y Precio
+                model_name = metadata.get('model_name', '').lower()
+                
+                # Buscamos el precio en el diccionario usando coincidencia parcial
+                # (Ej: "gpt-4o-mini-2024" coincidirá con "gpt-4o-mini")
+                costos = None
+                for key, precios in MODEL_PRICING.items():
+                    if key in model_name:
+                        costos = precios
+                        break
+                
+                # Cálculo del costo
+                if costos:
+                    costo_input = (input_tokens / 1_000_000) * costos["input"]
+                    costo_output = (output_tokens / 1_000_000) * costos["output"]
+                    costo_total = costo_input + costo_output
+                else:
+                    logger.warning(f"⚠️ Modelo no reconocido para cálculo de costos: {model_name}")
+                    costo_input = (input_tokens / 1_000_000) * 0.15
+                    costo_output = (output_tokens / 1_000_000) * 0.60
+                    costo_total = costo_input + costo_output
+
+                logger.info(
+                    f"💰 TOKEN USAGE [{thread_id}] ({model_name}): "
+                    f"In={input_tokens} | Out={output_tokens} | Total={total_tokens} | "
+                    f"Costo: ${costo_total:.6f} USD | Latency: {latency_ms}ms"
+                )
+            
             # --- 🔍 DETECCIÓN DE TOOLS (NUEVO) ---
-            if result.tool_calls:
+            tool_name = None
+            if hasattr(result, 'tool_calls') and result.tool_calls:
                 # El LLM decidió usar herramientas
                 for tool in result.tool_calls:
                     tool_name = tool.get("name")
                     tool_args = tool.get("args")
                     logger.info(f"🛠️ LLM EJECUTANDO TOOL: '{tool_name}' | Args: {tool_args}")
+            elif is_transcription:
+                # Para transcripción, el "tool" es la transcripción misma
+                tool_name = "transcription"
+                logger.info("🎤 Transcripción de audio completada.")
             else:
                 # El LLM respondió con texto normal
+                tool_name = "text_resp"
                 logger.info("💬 LLM respondió con texto.")
 
             # 📝 REGISTRO EN DB (Fire and Forget)
             business_id = thread_id.split(':')[0] if ':' in thread_id else ""
 
+            event_type = "transcription" if is_transcription else ("llm_primary" if isLlmPrimary else "llm_fallback")
+
             data = (
                 business_id,
                 thread_id,
-                "llm_primary" if isLlmPrimary else "llm_fallback", 
+                event_type,
                 input_tokens,
                 output_tokens,
                 f"{model_name}", 
                 costo_total,
                 latency_ms,
-                f"{tool_name}" if result.tool_calls else "text_resp",
+                tool_name,
                 None
             )
 
@@ -133,6 +183,9 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
             logger.info(f"✅ Evento de consumo de tokens registrado en DB para thread_id: {thread_id}")
 
             return usage
+        else:
+            logger.warning(f"⚠️ No se pudo extraer información de tokens para métricas del resultado: {result}")
+            return None
 
     except Exception as e:
         logger.error(f"⚠️ Error calculando métricas de tokens: {e}")

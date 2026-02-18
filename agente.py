@@ -1,12 +1,14 @@
 import os
 import time
-from typing import Annotated, TypedDict, List
+from typing import Annotated, TypedDict, List, Optional
 import operator
 from dotenv import load_dotenv
 from loguru import logger
 import sys
 import json
 import threading
+import base64
+from datetime import datetime
 
 # --- Imports de IA ---
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -275,7 +277,7 @@ def nodo_chatbot(state: State, config: RunnableConfig):
         return {"messages": [response_msg]}
 
     except Exception as e:
-        #logger.exception(f"⚠️ Fallo LLM primario ({e}). Cambiando a respaldo...")
+        start_time = time.time()
         logger.warning(f"⚠️ Fallo LLM primario para {thread_id} ({e}). Cambiando a respaldo...")
         try:
             response_msg = llm_backup_actual.invoke(mensajes_entrada)
@@ -435,3 +437,112 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
             "status": "ERROR",
             "response": "Error interno. Por favor, intenta nuevamente más tarde."
         }
+
+
+# ==============================================================================
+# 5. TRANSCRIPCIÓN DE AUDIO (Evolution Baileys WhatsApp)
+# ==============================================================================
+def transcribir_audio(audio_buffer: bytes, thread_id) -> Optional[str]:
+    """
+    Transcribe un mensaje de audio a texto usando OpenAI
+    
+    Args:
+        audio_buffer: Bytes del archivo de audio (formato OGG Opus de WhatsApp)
+    
+    Returns:
+        Texto transcrito o None si hay error
+    """
+    try:
+        import io
+        from pydub import AudioSegment
+        
+        TRANSCRIPTION_ENABLED = os.getenv("TRANSCRIPTION_ENABLED", "true").lower() == "true"
+        TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai")
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+        if not TRANSCRIPTION_ENABLED:
+            logger.warning("⚠️ [AUDIO] Transcripción deshabilitada")
+            return None
+        
+        # Verificar duración del audio
+        audio = AudioSegment.from_file(io.BytesIO(audio_buffer), format="ogg")
+        duration_seconds = len(audio) / 1000.0  # pydub da duración en ms
+        duration_minutes = duration_seconds / 60.0
+        logger.info(f"[AUDIO] Duración del audio: {duration_seconds:.2f} segundos")
+        MAX_DURATION_VOICE_SEC = int(os.getenv("MAX_DURATION_VOICE_SEC", 60))  # Límite configurable en segundos
+
+        if duration_seconds > MAX_DURATION_VOICE_SEC:
+            return f"¡Hola! La nota de voz es muy larga (más de {MAX_DURATION_VOICE_SEC // 60} minutos). Por favor, envíala en partes más cortas o resumí lo principal. 😊 Gracias!"
+        
+        logger.info(f"[AUDIO] Iniciando transcripción de audio ({len(audio_buffer)} bytes)")
+        
+        # Transcribir según el proveedor
+        transcription = None
+        TRANSCRIPTION_MODEL = os.getenv("TRANSCRIPTION_MODEL", "whisper-1")
+        
+        if TRANSCRIPTION_PROVIDER == "openai":
+            logger.debug(f"[AUDIO] Usando: {TRANSCRIPTION_MODEL} de OpenAI para transcripción")
+            from openai import OpenAI
+            
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            
+            # Crear un BytesIO buffer con el audio
+            buffer = io.BytesIO(audio_buffer)
+            buffer.name = "audio.ogg"  # OpenAI necesita un nombre con extensión
+            start_time = time.time()
+
+            response = openai_client.audio.transcriptions.create(
+                model=TRANSCRIPTION_MODEL,
+                file=buffer,
+                language="es",          # Español
+                response_format="text", # Texto plano
+                temperature=0.0         # Transcripciones deterministas
+            )
+            # ⏱️ CÁLCULO DE TIEMPO
+            latency_ms = int((time.time() - start_time) * 1000)
+            transcription_metrics = {
+                "response_metadata": {
+                    "model_name": TRANSCRIPTION_MODEL,
+                    "provider": "openai"
+                },
+                "usage_transcription": {
+                    "duration_minutes": duration_minutes
+                }
+            }
+            _lanzar_metricas_background(pool, transcription_metrics, thread_id, latency_ms, isLlmPrimary=True)
+
+            transcription = response if isinstance(response, str) else response.text
+        
+        elif TRANSCRIPTION_PROVIDER == "whisper-local":
+            logger.debug("[AUDIO] Usando Whisper local")
+            import whisper
+            import tempfile
+            
+            # Guardar temporalmente para Whisper local
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.ogg') as temp_audio:
+                temp_audio.write(audio_buffer)
+                temp_audio_path = temp_audio.name
+            
+            try:
+                model = whisper.load_model("base")
+                result = model.transcribe(temp_audio_path, language="es")
+                transcription = result["text"]
+            finally:
+                # Limpiar archivo temporal
+                try:
+                    os.unlink(temp_audio_path)
+                except:
+                    pass
+        
+        if transcription:
+            logger.info(f"[AUDIO] Transcripción exitosa: {transcription[:100].replace('\n', ' ')}")
+            return transcription
+        else:
+            logger.error("❌ [AUDIO] No se obtuvo transcripción")
+            return None
+            
+    except Exception as e:
+        logger.error(f"🔴 [AUDIO] Error transcribiendo audio: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
