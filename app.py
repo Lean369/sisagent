@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 from flask import Response
 # 🚀 1. Inicializar el logger ANTES que el resto del sistema
 inicializar_logger()
-from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY, transcribir_audio
+from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY, transcribir_audio, analizar_imagen_con_ai
 from utilities import obtener_configuraciones
 from tools_hitl import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
@@ -40,7 +40,111 @@ EVOLUTION_API_KEY = os.environ.get("EVOLUTION_API_KEY")
 
 client = EvolutionClient(base_url=EVOLUTION_URL, api_token=EVOLUTION_API_KEY)
 
-def enviar_mensaje_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None, instance_id: str = None):
+def enviar_documento_whatsapp(numero_destino: str, documento, nombre_instancia: str = None, 
+                              filename: str = "documento.pdf", caption: str = None):
+    """Envía un documento a través del cliente de Evolution API.
+    
+    Args:
+        numero_destino: Número en formato internacional (549...)
+        documento: Puede ser:
+            - URL del documento (str que empiece con http:// o https://)
+            - Base64 del documento (str sin prefijo o con data:application/pdf;base64,)
+        nombre_instancia: Nombre de la instancia Evolution
+        filename: Nombre del archivo que verá el usuario
+        caption: Texto opcional que acompaña al documento
+    """
+    logger.debug(f"Enviando documento a WhatsApp: {numero_destino} - {filename}")
+
+    try:
+        endpoint = f"message/sendMedia/{nombre_instancia}"
+        
+        # Detectar si es URL o base64
+        is_url = isinstance(documento, str) and (documento.startswith('http://') or documento.startswith('https://'))
+        
+        if is_url:
+            # Enviar como URL
+            payload = {
+                "number": numero_destino,
+                "mediatype": "document",
+                "mimetype": "application/pdf",
+                "caption": caption or f"📄 {filename}",
+                "fileName": filename,
+                "media": documento
+            }
+        else:
+            # Enviar como base64
+            # Limpiar el base64 si viene con el prefijo data:
+            base64_data = documento
+            if base64_data.startswith('data:'):
+                base64_data = base64_data.split(',')[1]
+            
+            payload = {
+                "number": numero_destino,
+                "mediatype": "document",
+                "mimetype": "application/pdf",
+                "caption": caption or f"📄 {filename}",
+                "fileName": filename,
+                "media": base64_data
+            }
+    
+        response = client.post(endpoint, data=payload)
+        
+        if not response:
+            logger.error(f"❌ Evolution client returned empty response")
+            return {"status": "failed", "error": "Empty response from Evolution API"}
+        
+        logger.info(f"✅ Documento '{filename}' enviado correctamente a {numero_destino}")
+        logger.debug(f"Sent document with instance={nombre_instancia} response={str(response)[:200]}")
+        
+        return response
+            
+    except Exception as e:
+        logger.error(f"🔴 Exception when sending document with instance {nombre_instancia}: {e}")
+        return {"status": "failed", "error": str(e)}
+
+
+def enviar_boton_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
+    """Envía un mensaje con botones interactivos a través del cliente de Evolution API.
+    Soporta hasta 3 botones de tipo 'reply'.
+    """
+    logger.debug(f"Enviando mensaje con botón a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
+
+    try:
+        # Endpoint correcto para Baileys
+        endpoint = f"message/sendButtons/{nombre_instancia}"
+        
+        # Estructura correcta según Evolution API v2 con Baileys
+        payload = {
+            "number": numero_destino,
+            "title": mensaje,
+            "description": "Selecciona una opción:",
+            "footer": "Powered by AI",
+            "buttons": [
+                {
+                    "type": "reply",
+                    "displayText": "Opción 1",
+                    "id": "btn_1"
+                }
+            ]
+        }
+    
+        response = client.post(endpoint, data=payload)
+        
+        if not response:
+            logger.error(f"❌ Evolution client returned empty response")
+            return {"status": "failed", "error": "Empty response from Evolution API"}
+        
+        logger.info(f"✅ Botones enviados correctamente a {numero_destino}")
+        logger.debug(f"Sent button message with instance={nombre_instancia} response={str(response)[:200]}")
+        
+        return response
+            
+    except Exception as e:
+        logger.error(f"🔴 Exception when sending button message with instance {nombre_instancia}: {e}")
+        return {"status": "failed", "error": str(e)}
+
+
+def enviar_texto_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
     """Envía un mensaje a través del cliente de Evolution API.
     """
     logger.debug(f"Enviando mensaje a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
@@ -82,7 +186,7 @@ def enviar_mensaje_whatsapp(numero_destino: str, mensaje, nombre_instancia: str 
         return {"status": "failed", "error": str(e)}
 
 
-def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, client_name: str = "") -> str:
+def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, client_name: str = "", ttl_minutos: int = 60) -> str:
     """Procesa un mensaje usando LangGraph y devuelve el resultado como texto"""
     try:
         # 1. Datos obligatorios      
@@ -100,7 +204,8 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
             "configurable": {
                 "thread_id": thread_id,
                 "business_id": business_id,
-                "client_name": client_name
+                "client_name": client_name,
+                "ttl_minutos": ttl_minutos
             },
             "recursion_limit": 15
         }
@@ -132,31 +237,127 @@ def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, clien
         return  "No se pudo procesar su solicitud."
 
 
-def procesar_y_responder_evoapi(business_id, user_id, mensaje, push_name, instance_id):
+def procesar_y_responder_evoapi(business_id, user_id, mensaje, push_name, ttl_minutos):
     """
     Función que corre en background:
     1. Llama al Agente (Lento)
     2. Envía la respuesta por WhatsApp (I/O)
     """
     try:    
-
         # 1. Proceso Lento (IA)
-        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name)
+        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name, ttl_minutos=ttl_minutos)
         
         # 2. Envío de respuesta
         if respuesta_ia:
             logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
-            enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_id)
+            enviar_texto_whatsapp(user_id, respuesta_ia, business_id)
+
+            # # Cargar el base64
+            # with open('documento_prueba_base64.txt', 'r') as f:
+            #     base64_pdf = ''.join([line for line in f if not line.startswith('#')]).strip()
+
+            # # Usar la función actualizada
+            # from app import enviar_documento_whatsapp
+
+            # enviar_documento_whatsapp(
+            #     "5491131376731",          # Tu número
+            #     base64_pdf,               # El base64 del PDF
+            #     "cliente2",               # Tu instancia
+            #     "documento_prueba.pdf",   # Nombre del archivo
+            #     "📄 Documento de prueba"  # Caption opcional
+            # )
+
+
         else:
             logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
             #respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
-            #enviar_mensaje_whatsapp(user_id, respuesta_ia, business_id, instance_name=instance_id)
+            #enviar_texto_whatsapp(user_id, respuesta_ia, business_id)
 
     except Exception as e:
         logger.error(f"🔴 Error en worker background para {user_id}: {e}")
 
 
-def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, instance_id):
+def worker_procesar_imagen(business_id, user_id, msg_id, mensaje, push_name):
+    """
+    Procesa imágenes enviadas por WhatsApp:
+    1. Descarga la imagen desde Evolution API
+    2. Analiza la imagen con AI multimodal
+    3. Responde al usuario con el análisis
+    """
+    try:
+        logger.debug(f"[IMAGE] Procesando imagen para {user_id}, instance={business_id}")
+        telefono = user_id.split("@")[0]
+        
+        # Usar el cliente evolutionapi para obtener la imagen en base64
+        endpoint = f"chat/getBase64FromMediaMessage/{business_id}"
+        payload_media = {
+            "message": {
+                "key": mensaje.get("key"),
+                "message": mensaje.get("message")
+            },
+            "convertToMp4": False
+        }
+        
+        logger.debug(f"[IMAGE] Solicitando descarga de imagen usando evolutionapi client...")
+        
+        try:
+            response = client.post(endpoint, data=payload_media)
+            
+            if not response or not isinstance(response, dict):
+                logger.error(f"❌ [IMAGE] Respuesta inválida del cliente: {response}")
+                msg = "Disculpa, tuve problemas para procesar tu imagen. ¿Podrías describir qué necesitas? 📝"
+                enviar_texto_whatsapp(user_id, msg, business_id)
+                return
+            
+            base64_image = response.get("base64")
+            
+            if not base64_image:
+                logger.error(f"❌ [IMAGE] No se recibió base64 en la respuesta: {response}")
+                msg = "Disculpa, no pude procesar tu imagen. ¿Podrías describir qué necesitas? 📝"
+                enviar_texto_whatsapp(user_id, msg, business_id)
+                return
+            
+            # Decodificar el base64 a bytes
+            image_buffer = base64.b64decode(base64_image)
+            logger.info(f"[IMAGE] Imagen descargada: {len(image_buffer)} bytes")
+            
+            # Extraer caption si existe
+            caption = mensaje.get("message", {}).get("imageMessage", {}).get("caption")
+            
+            # Analizar la imagen con AI
+            thread_id = f"{business_id}:{user_id}"
+            analisis = analizar_imagen_con_ai(image_buffer, thread_id, caption)
+            
+            if analisis:
+                msg = f"[RCV <- EVO] 🖼️ TEL: {telefono} - IMG: {caption[:50] if caption else 'sin texto'}"
+                generar_resumen_auditoria(business_id, msg)
+                
+                # Enviar el análisis como respuesta
+                respuesta = f"📸 He analizado tu imagen:\n\n{analisis}"
+                if caption:
+                    respuesta = f"📸 Vi tu imagen y el texto '{caption}'.\n\n{analisis}"
+                
+                enviar_texto_whatsapp(user_id, respuesta, business_id)
+            else:
+                msg = "Disculpa, no pude analizar tu imagen. ¿Podrías describir qué necesitas? 📝"
+                enviar_texto_whatsapp(user_id, msg, business_id)
+                
+        except Exception as api_error:
+            logger.error(f"❌ [IMAGE] Error llamando API Evolution: {api_error}")
+            msg = "Disculpa, tuve problemas procesando tu imagen. ¿Podrías describir qué necesitas? 📝"
+            enviar_texto_whatsapp(user_id, msg, business_id)
+
+    except Exception as e:
+        logger.error(f"🔴 Error procesando imagen background: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            msg = "Disculpa, tuve un error procesando tu imagen. ¿Podrías escribir tu consulta? 📝"
+            enviar_texto_whatsapp(user_id, msg, business_id)
+        except:
+            pass  # Evitar errores en cascada
+
+def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, ttl_minutos):
     try:
         logger.debug(f"[AUDIO] Procesando audio para {user_id}, instance={business_id}")
         telefono = user_id.split("@")[0]    
@@ -180,7 +381,7 @@ def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, inst
             if not response or not isinstance(response, dict):
                 logger.error(f"❌ [AUDIO] Respuesta inválida del cliente: {response}")
                 msg = "Disculpa, tuve problemas para procesar tu audio. ¿Podrías escribirlo? 📝"
-                enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+                enviar_texto_whatsapp(user_id, msg, business_id)
                 return
             
             base64_audio = response.get("base64")
@@ -188,7 +389,7 @@ def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, inst
             if not base64_audio:
                 logger.error(f"❌ [AUDIO] No se recibió base64 en la respuesta: {response}")
                 msg = "Disculpa, no pude procesar tu audio. ¿Podrías escribirlo? 📝"
-                enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+                enviar_texto_whatsapp(user_id, msg, business_id)
                 return
             
             # Decodificar el base64 a bytes PRIMERO
@@ -203,15 +404,15 @@ def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, inst
                 msg = f"[RCV <- EVO] 🔊 TEL: {telefono} - MSG: {texto_transcrito[:100].replace('\n', ' ')}"
                 generar_resumen_auditoria(business_id, msg)
                 # 2. Reutilizamos el worker de texto existente para procesar con IA
-                procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, instance_id)
+                procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, ttl_minutos)
             else:
                 msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
-                enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+                enviar_texto_whatsapp(user_id, msg, business_id)
                 
         except Exception as api_error:
             logger.error(f"❌ [AUDIO] Error llamando API Evolution: {api_error}")
             msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
-            enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+            enviar_texto_whatsapp(user_id, msg, business_id)
 
     except Exception as e:
         logger.error(f"🔴 Error procesando audio background: {e}")
@@ -219,7 +420,7 @@ def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, inst
         logger.error(traceback.format_exc())
         try:
             msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
-            enviar_mensaje_whatsapp(user_id, msg, business_id, instance_id)
+            enviar_texto_whatsapp(user_id, msg, business_id)
         except:
             pass  # Evitar errores en cascada
 
@@ -256,14 +457,14 @@ def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, telefo
         logger.error(f"🔴 Error enviando a Chatwoot: {e}")
 
 
-def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", phone_number: str = ""):
+def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", phone_number: str = "", ttl_minutos: int = 60):
     """Función que corre en background para procesar mensajes de Chatwoot y responder"""
 
     try:       
         logger.debug(f"Procesando mensaje para Chatwoot user_id={user_id} (Conv ID: {conversation_id})")
 
         # 1. Proceso Lento (IA)
-        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=client_name)
+        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=client_name, ttl_minutos=ttl_minutos)
             
         # 2. Envío de respuesta
         if respuesta_ia:
@@ -318,7 +519,12 @@ def webhook_chatwoot():
         user_id = f"{phone_number.replace('+', '')}@{channel}@{account_id}@{conversation_id}" if phone_number else f"conv_{conversation_id}"
         logger.debug(f"Extracted data - business_id: {business_id}, user_id: {user_id}, conversation_id: {conversation_id}, account_id: {account_id}")
 
-        # 5. Delegar al ThreadPool (igual que hacías con WhatsApp)
+        # 5. Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
+        config_actual = obtener_configuraciones() 
+        info_negocio = config_actual.get(business_id)
+        ttl_minutos = info_negocio.get("ttl_sesion_minutos", 60)
+
+        # 6. Delegar al ThreadPool (igual que hacías con WhatsApp)
         executor.submit(
             procesar_y_responder_chatwoot, 
             business_id, 
@@ -327,7 +533,8 @@ def webhook_chatwoot():
             conversation_id, 
             account_id,
             client_name,
-            phone_number
+            phone_number,
+            ttl_minutos
         )
 
         return jsonify({"status": "recibido"}), 200
@@ -381,29 +588,47 @@ def webhook():
                 else:
                     logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
             
+            # Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
+            config_actual = obtener_configuraciones() 
+            info_negocio = config_actual.get(business_id)
+            ttl_minutos = info_negocio.get("ttl_sesion_minutos", 60)
+            audio_transcripcion = info_negocio.get("audio_transcripcion", True)
+
             #[TEXTO] Procesar mensaje de texto normal
             if mensaje and user_id and not from_me:          
                 msg = f"[RCV <- EVO] 📨 TEL: {telefono} - MSG: {mensaje[:100]}..."
                 generar_resumen_auditoria(business_id, msg)
-                executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, instance_id)    
+                executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, ttl_minutos)    
             else:
                 logger.debug("No es mensaje de texto o es de 'from_me', saltando procesamiento de texto.")
 
-            # [MULTIMEDIA] Si es una imagen, video, documento o sticker, pedir que escriba texto
+            # [MULTIMEDIA] Procesamiento de imágenes, videos, documentos y stickers
             if (image_message or video_message or document_message or sticker_message) and not from_me and user_id:
                 tipo_archivo = "imagen" if image_message else \
                                "video" if video_message else \
                                "documento" if document_message else \
                                "sticker"
                 
-                logger.info(f"Incomming {tipo_archivo.upper()} from {user_id} ({push_name}), requesting text message..")
-                # Enviar en background usando ThreadPool
-                msg = f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
-                executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, instance_id)
+                logger.info(f"Incomming {tipo_archivo.upper()} from {user_id} ({push_name})")
+                
+                # Procesar imágenes con AI Vision
+                if image_message:
+                    logger.info(f"🖼️ Procesando imagen de {user_id}. Analizando con AI Vision...")
+                    executor.submit(worker_procesar_imagen, business_id, user_id, msg_id, mensaje_data, push_name)
+                else:
+                    # Para videos, documentos y stickers, pedir texto
+                    msg = f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+                    executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
             
             # [AUDIO] Si es un mensaje de audio
             if audio_message and audio_message.get("ptt") and not from_me and user_id:
-                executor.submit(worker_procesar_audio, business_id, user_id, msg_id, mensaje_data, push_name, instance_id)
+                if audio_transcripcion:
+                    logger.info(f"🔊 Procesando audio de {user_id}. Transcribiendo y analizando con IA...")
+                    executor.submit(worker_procesar_audio, business_id, user_id, msg_id, mensaje_data, push_name, ttl_minutos)
+                else:
+                    logger.info(f"🔊 Audio recibido de {user_id}, pero la transcripción está deshabilitada. Enviando mensaje para pedir texto.")
+                    msg = f"Gracias por tu nota de voz. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+                    executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
         
         # [LISTA] Soporte alternativo para formato con lista de mensajes
         for msg in payload.get("messages", []):
@@ -417,11 +642,11 @@ def webhook():
                 if text and user_id and not from_me:
                     msg = f"[RCV <- EVO] 📄 TEL: {telefono} - MSG: {text[:100]}..."
                     generar_resumen_auditoria(business_id, msg)
-                    executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, instance_id)  
+                    executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, ttl_minutos)  
                 else:
                     logger.warning("⚠️[LIST] No se pudo procesar, enviando mensaje genérico")
                     msg = f"No pudimos procesar tu solicitud."
-                    executor.submit(enviar_mensaje_whatsapp, user_id, msg, business_id, payload.get('instance'))
+                    executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
         
         # Responder inmediatamente (sin esperar procesamiento)
         logger.debug(f"Responding to webhook immediately with 200 OK - ID: {msg_id}")
@@ -479,7 +704,7 @@ def borrar_memoria():
         return jsonify({"error": "Error al borrar memoria"}), 500
 
 
-def ejecutar_reactivar_bot(business_id: str, user_id: str):
+def ejecutar_reactivar_bot(business_id: str, user_id: str) -> bool:
     """Función para ejecutar la reactivación del bot. Se puede llamar desde un script o tarea programada."""
     try:
         thread_id = f"{business_id}:{user_id}"
@@ -508,7 +733,10 @@ def ejecutar_reactivar_bot(business_id: str, user_id: str):
                 {"messages": [mensaje_reactivacion]},
                 as_node="chatbot" # O el nodo que corresponda
             )
-
+        
+        telefono = thread_id.split(':')[1].split('@')[0] if thread_id else "unknown"
+        msg = f"[---TOOL---] 📤 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO"
+        generar_resumen_auditoria(business_id, msg)
         logger.info(f"Bot reactivado exitosamente para {thread_id}")
         return True
 
@@ -527,19 +755,79 @@ def reactivar_bot_web():
     
     if not token:
         return "❌ Error: Falta el token de seguridad.", 400
+    
     try:
-        # 1. Decodificar y Validar (Si esto pasa, los datos son auténticos)
-        business_id, user_id = decodificar_token_reactivacion(token)
+        # 🤖 DETECTAR SI ES UN BOT/CRAWLER (WhatsApp, Facebook, etc.)
+        user_agent = request.headers.get('User-Agent', '')
         
-        # # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
-        # if user_id and not from_me and DDOS_PROTECTION_ENABLED and ddos_protection:
-        #     puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
-        #     if not puede_procesar:
-        #         logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
-        #         # NO enviar mensaje automático para prevenir loops
-        #         return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
-        #     else:
-        #         logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
+        # Log completo para debugging
+        logger.info(f"🔍 Reactivación solicitada - User-Agent: {user_agent}")
+        logger.info(f"🔍 Headers completos: {dict(request.headers)}")
+        
+        user_agent_lower = user_agent.lower()
+        is_crawler = any([
+            'whatsapp' in user_agent_lower,
+            'facebookexternalhit' in user_agent_lower,
+            'facebot' in user_agent_lower,
+            'bot' in user_agent_lower and 'google' in user_agent_lower,
+            'telegram' in user_agent_lower,
+            'slackbot' in user_agent_lower,
+            'preview' in user_agent_lower,
+            'crawler' in user_agent_lower,
+            'spider' in user_agent_lower,
+            # Patrones adicionales comunes
+            user_agent == '',  # User-Agent vacío suele ser crawler
+            'curl' in user_agent_lower,
+            'wget' in user_agent_lower,
+            user_agent_lower == 'node',  # Evolution API / WhatsApp preview fetcher
+            'read-aloud' in user_agent_lower,  # Google-Read-Aloud bot
+            'googlebot' in user_agent_lower,  # Google crawler
+        ])
+        
+        # Si es un crawler, devolver solo metadata (Open Graph) sin ejecutar la acción
+        if is_crawler:
+            logger.warning(f"🤖 CRAWLER DETECTADO: {user_agent[:150]} - Bloqueando reactivación automática")
+            
+            # URL de la imagen para el preview (puede ser personalizada por negocio)
+            preview_image_url = "https://sisagent.sisnova.org/static/logo-sisnova3.png"
+            
+            return f"""
+            <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    
+                    <!-- Open Graph / WhatsApp Preview -->
+                    <meta property="og:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
+                    <meta property="og:description" content="Toca aquí para reactivar la conversación con el bot" />
+                    <meta property="og:type" content="website" />
+                    <meta property="og:image" content="{preview_image_url}" />
+                    <meta property="og:image:type" content="image/png" />
+                    <meta property="og:image:width" content="667" />
+                    <meta property="og:image:height" content="200" />
+                    <meta property="og:image:alt" content="Reactivar Bot" />
+                    
+                    <!-- Twitter Card (por si acaso) -->
+                    <meta name="twitter:card" content="summary_large_image" />
+                    <meta name="twitter:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
+                    <meta name="twitter:description" content="Toca aquí para reactivar la conversación con el bot" />
+                    <meta name="twitter:image" content="{preview_image_url}" />
+                    
+                    <!-- SEO -->
+                    <meta name="robots" content="noindex, nofollow" />
+                    <title>Reactivar Bot - SisAgent</title>
+                </head>
+                <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #f5f5f5;">
+                    <h1 style="color: #666;">⚠️ Preview Mode</h1>
+                    <p style="color: #999;">Este enlace debe ser abierto manualmente para activar la acción.</p>
+                    <p style="color: #ccc; font-size: 12px; margin-top: 40px;">Bot detection active</p>
+                </body>
+            </html>
+            """, 200
+        
+        # 1. Decodificar y Validar (Si esto pasa, los datos son auténticos)
+        logger.info(f"✅ Usuario real detectado (no crawler) - User-Agent: {user_agent[:100]}")
+        business_id, user_id = decodificar_token_reactivacion(token)
 
         thread_id = f"{business_id}:{user_id}"
         
@@ -549,11 +837,17 @@ def reactivar_bot_web():
         if ejecutar_reactivar_bot(business_id, user_id):
             return f"""
             <html>
-                <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Bot Reactivado</title>
+                </head>
+                <body style="font-family: sans-serif; text-align: center; padding: 80px;">
                     <h1 style="color: green;">✅ Bot Reactivado</h1>
-                    <p>El cliente <b>{user_id}</b> ya puede hablar con la IA nuevamente.</p>
-                    <p>Thread ID: {thread_id}</p>
-                    <button onclick="window.close()">Cerrar pestaña</button>
+                    <p>El cliente <b>{user_id.split('@')[0]}</b> ya puede hablar con el Bot nuevamente.</p>
+                    <p style="color: #666;">Negocio: {thread_id.split(':')[0]}</p>
+                    <p style="color: #666;"><b>Puedes cerrar esta ventana.</b></p>
+                    <p id="message" style="color: #666; margin-top: 20px;"></p>
                 </body>
             </html>
             """, 200
@@ -603,7 +897,7 @@ def chat():
         business_id = data.get('business_id') # Ej: "negocio_zapatillas"
 
         #Devolver el diccionario tal cual (Flask lo convierte a JSON)
-        return adaptar_procesar_mensaje(business_id, user_id, mensaje)
+        return adaptar_procesar_mensaje(business_id, user_id, mensaje, ttl_minutos=120)
 
     except Exception as e:
         logger.error(f"🔴 Error: {e}") 

@@ -140,6 +140,7 @@ class State(TypedDict):
 def nodo_chatbot(state: State, config: RunnableConfig):
     # 1. Recuperar Configuración desde parámetro config (que viene de app.py)
     configurable = config.get("configurable", {})
+
     business_id = configurable.get("business_id", "default")
     nombre_cliente = configurable.get("client_name", "Cliente")
     thread_id = configurable.get("thread_id", "unknown_thread")
@@ -368,11 +369,8 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
         conf_data = config.get('configurable', {})
         thread_id = conf_data.get('thread_id', 'unknown')
         business_id = conf_data.get('business_id', 'unknown')
-        
-        # ---------------------Verificación de sesión expirada------------------------------------
-        config_actual = obtener_configuraciones() 
-        info_negocio = config_actual.get(business_id)
-        ttl_minutos = info_negocio.get("ttl_sesion_minutos", 60)
+        ttl_minutos = conf_data.get('ttl_minutos', 60)
+
         logger.info(f"Procesando msg. thread={thread_id}, business={business_id}, ttl_sesion={ttl_minutos}min")
 
         # 🧹 --- NUEVA LÓGICA DE LIMPIEZA ---
@@ -543,6 +541,120 @@ def transcribir_audio(audio_buffer: bytes, thread_id) -> Optional[str]:
             
     except Exception as e:
         logger.error(f"🔴 [AUDIO] Error transcribiendo audio: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+
+def analizar_imagen_con_ai(image_buffer: bytes, thread_id: str, caption: str = None) -> Optional[str]:
+    """
+    Analiza una imagen usando un modelo multimodal (GPT-4 Vision, Gemini, etc.)
+    
+    Args:
+        image_buffer: Bytes de la imagen
+        thread_id: ID del thread para métricas
+        caption: Texto que acompaña la imagen (opcional)
+    
+    Returns:
+        Descripción/análisis de la imagen o None si hay error
+    """
+    try:
+        import base64
+        
+        IMAGE_ANALYSIS_ENABLED = os.getenv("IMAGE_ANALYSIS_ENABLED", "true").lower() == "true"
+        IMAGE_ANALYSIS_PROVIDER = os.getenv("IMAGE_ANALYSIS_PROVIDER", "openai")  # openai o gemini
+        
+        if not IMAGE_ANALYSIS_ENABLED:
+            logger.warning("⚠️ [IMAGE] Análisis de imágenes deshabilitado")
+            return None
+        
+        logger.info(f"[IMAGE] Iniciando análisis de imagen ({len(image_buffer)} bytes)")
+        
+        # Convertir imagen a base64
+        image_base64 = base64.b64encode(image_buffer).decode('utf-8')
+        
+        # Crear el prompt
+        prompt_text = "Describe detalladamente esta imagen."
+        if caption:
+            prompt_text = f"El usuario envió esta imagen con el siguiente texto: '{caption}'. Analiza la imagen y responde en relación al texto."
+        
+        start_time = time.time()
+        
+        if IMAGE_ANALYSIS_PROVIDER == "openai":
+            logger.debug("[IMAGE] Usando OpenAI GPT-4o Vision")
+            from openai import OpenAI
+            from langchain_core.messages import HumanMessage
+            
+            OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            
+            # Usar GPT-4o o GPT-4o-mini que soportan visión
+            model = os.getenv("VISION_MODEL", "gpt-4o-mini")
+            
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_text},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=500,
+                temperature=0.0
+            )
+            
+            latency_ms = int((time.time() - start_time) * 1000)
+            analysis = response.choices[0].message.content
+            
+            logger.info(f"📊 [IMAGE] Análisis completado en {latency_ms}ms")
+            _lanzar_metricas_background(pool, response, thread_id, latency_ms, isLlmPrimary=True)
+            
+        elif IMAGE_ANALYSIS_PROVIDER == "gemini":
+            logger.debug("[IMAGE] Usando Google Gemini Vision")
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            from langchain_core.messages import HumanMessage
+            
+            model = os.getenv("VISION_MODEL", "gemini-2.0-flash-exp")
+            llm = ChatGoogleGenerativeAI(model=model, temperature=0)
+            
+            message = HumanMessage(
+                content=[
+                    {"type": "text", "text": prompt_text},
+                    {
+                        "type": "image_url",
+                        "image_url": f"data:image/jpeg;base64,{image_base64}"
+                    }
+                ]
+            )
+            
+            response = llm.invoke([message])
+            latency_ms = int((time.time() - start_time) * 1000)
+            analysis = response.content
+            
+            logger.info(f"📊 [IMAGE] Análisis completado en {latency_ms}ms")
+            _lanzar_metricas_background(pool, response, thread_id, latency_ms, isLlmPrimary=True)
+        
+        else:
+            logger.error(f"❌ [IMAGE] Proveedor no soportado: {IMAGE_ANALYSIS_PROVIDER}")
+            return None
+        
+        if analysis:
+            logger.info(f"[IMAGE] Análisis exitoso: {analysis[:100].replace(chr(10), ' ')}...")
+            return analysis
+        else:
+            logger.error("❌ [IMAGE] No se obtuvo análisis")
+            return None
+            
+    except Exception as e:
+        logger.error(f"🔴 [IMAGE] Error analizando imagen: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return None

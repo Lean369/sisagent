@@ -100,7 +100,7 @@
     "nombre": "Luigi's Pizza",
     "ttl_sesion_minutos": 6,
     "admin_phone": "5491131376731",
-    "audio_transcripcion": false,
+    "audio_transcripcion": true,
     "fuera_de_servicio": {
       "activo": false,
       "horario_inicio": "09:00",

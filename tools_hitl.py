@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from utilities import obtener_configuraciones
+from logger_config import generar_resumen_auditoria
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -37,7 +38,7 @@ def generar_token_reactivacion(business_id, user_id, expiracion_minutos=60):
         return None
 
 
-def obtener_mensaje_admin(motivo, thread_id):
+def obtener_mensaje_admin(motivo, thread_id, nombre_cliente):
     try:      
         cliente_telefono = thread_id.split(':')[1].split('@')[0] if ':' in thread_id else thread_id.split('@')[0]
         user_id = thread_id.split(':')[1] if ':' in thread_id else "default_user_id"
@@ -48,14 +49,16 @@ def obtener_mensaje_admin(motivo, thread_id):
         # URL de tu servidor (ajusta localhost por tu dominio real en producción)
         base_url = os.getenv("APP_BASE_URL", "http://192.168.1.220:5000")
         magic_link = f"{base_url}/reactivar_bot_web?token={token}"
+        url_wame = f"https://wa.me/{cliente_telefono}"
 
         # Mensaje al dueño con el link OCULTO
         msg_admin = (
-            f"🚨 *SOLICITUD DE HUMANO*\n\n"
-            f"Cliente: +{cliente_telefono}\n"
+            #f"🚨 *SOLICITUD DE ASISTENCIA*\n\n"
+            f"Contacta al cliente aqui: 👉 {url_wame}\n\n" +
+            f"Cliente: {nombre_cliente} (+{cliente_telefono})\n"
             f"Motivo: {motivo}\n\n"
             f"Negocio: {business_id}\n\n"
-            f"👇 *Cuando termines, haz clic aquí para reactivar el bot:*\n\n"
+            f"👇 *Cuando termines, clickea aqui para reactivar el bot:*\n\n"
             f"{magic_link}"
             f"\n\n⚠️ *Intervenir ahora.*"
         )
@@ -65,7 +68,7 @@ def obtener_mensaje_admin(motivo, thread_id):
 
     except Exception as e:
         logger.error(f"Error generando mensaje para admin: {e}")
-        return f"🚨 *SOLICITUD DE HUMANO*\n\nCliente: +{cliente_telefono}\nMotivo: {motivo}\n\n(No se pudo generar el enlace de reactivación, contacta al soporte.)"
+        return f"🚨 *SOLICITUD DE ASISTENCIA*\n\nCliente: +{cliente_telefono}\nMotivo: {motivo}\n\n(No se pudo generar el enlace de reactivación, contacta al soporte.)"
 
 
 
@@ -82,9 +85,10 @@ def solicitar_atencion_humana(motivo: str, config: RunnableConfig) -> str:
     try:
         # 1. Obtener datos de configuración
         configuration = config.get('configurable', {})
+
         business_id = configuration.get('business_id', 'default')
         thread_id = configuration.get('thread_id', '')
-        
+        nombre_cliente = configuration.get('client_name', 'desconocido')
 
         # Extraemos el teléfono del administrador desde el config dinámico (hot reload)
         config_actual = obtener_configuraciones() 
@@ -106,8 +110,12 @@ def solicitar_atencion_humana(motivo: str, config: RunnableConfig) -> str:
             "apikey": os.environ.get("EVOLUTION_API_KEY")
         }
 
+        telefono = cliente_telefono if cliente_telefono else "unknown"
+        msg = f"[---TOOL---] 📤 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_DESACTIVADO"
+        generar_resumen_auditoria(business_id, msg)
+
         # --- ACCIÓN A: AVISAR AL DUEÑO ---
-        msg_admin = obtener_mensaje_admin(motivo, thread_id)
+        msg_admin = obtener_mensaje_admin(motivo, thread_id, nombre_cliente)
         
         response = requests.post(
             f"{evo_url}/message/sendText/{business_id}", # Usamos la instancia del negocio
@@ -199,6 +207,10 @@ def solicitar_atencion_humana_chatwoot(motivo: str, config: RunnableConfig) -> s
 
         logger.info(f"🔄 Conversación {conversation_id} derivada a humanos exitosamente.")
         
+        telefono = "unknown"
+        msg = f"[---TOOL---] 📤 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_DESACTIVADO"
+        generar_resumen_auditoria(account_id, msg)
+
         # Le decimos al LLM qué pasó para que se despida
         return "DERIVACION_EXITOSA_CHATWOOT. Despídete amablemente diciendo que un agente se conectará pronto."
 

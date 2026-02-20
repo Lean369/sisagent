@@ -34,7 +34,7 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
         # 1. Normalización del objeto mensaje/result
         mensaje = None
         metadata = {}
-        logger.debug(f"🔍 Analizando resultado para métricas: {result}")
+        logger.debug(f"🔍 Analizando resultado para métricas para: {thread_id}")
         # Caso A: Result es un objeto AIMessage directo (invoke del LLM)
         if isinstance(result, BaseMessage):
             mensaje = result
@@ -53,6 +53,20 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
         elif isinstance(result, dict) and "response_metadata" in result:
             metadata = result["response_metadata"]
             mensaje = result  # El diccionario completo es el "mensaje"
+        
+        # Caso E: ChatCompletion de OpenAI (análisis de imágenes con raw API)
+        elif hasattr(result, 'choices') and hasattr(result, 'usage') and hasattr(result, 'model'):
+            # Es un objeto ChatCompletion de OpenAI
+            logger.debug(f"[METRICS] Detectado ChatCompletion de OpenAI: {result.model}")
+            mensaje = result  # Usamos el objeto completo
+            metadata = {
+                'model_name': result.model,
+                'token_usage': {
+                    'prompt_tokens': result.usage.prompt_tokens,
+                    'completion_tokens': result.usage.completion_tokens,
+                    'total_tokens': result.usage.total_tokens
+                }
+            }
 
         if not mensaje: 
             logger.warning(f"⚠️ No se pudo identificar un mensaje válido para extraer métricas: {result}")
@@ -135,27 +149,48 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
                     f"Costo: ${costo_total:.6f} USD | Latency: {latency_ms}ms"
                 )
             
-            # --- 🔍 DETECCIÓN DE TOOLS (NUEVO) ---
+            # --- 🔍 DETECCIÓN DE TOOLS Y EVENT TYPE ---
             tool_name = None
-            if hasattr(result, 'tool_calls') and result.tool_calls:
-                # El LLM decidió usar herramientas
-                for tool in result.tool_calls:
-                    tool_name = tool.get("name")
-                    tool_args = tool.get("args")
-                    logger.info(f"🛠️ LLM EJECUTANDO TOOL: '{tool_name}' | Args: {tool_args}")
-            elif is_transcription:
-                # Para transcripción, el "tool" es la transcripción misma
-                tool_name = "transcription"
-                logger.info("🎤 Transcripción de audio completada.")
-            else:
-                # El LLM respondió con texto normal
-                tool_name = "text_resp"
-                logger.info("💬 LLM respondió con texto.")
+            is_image_analysis = False
+            
+            # Detectar si es análisis de imagen (basado en modelo o provider)
+            model_lower = model_name.lower() if isinstance(model_name, str) else ""
+            provider = metadata.get('provider', '') if isinstance(metadata, dict) else ''
+            
+            if 'vision' in provider or 'gpt-4o' in model_lower or 'gemini' in model_lower:
+                # Es posible que sea análisis de imagen
+                # Verificar si los tokens de entrada son muy altos (indicativo de imagen)
+                if input_tokens > 10000:  # Las imágenes generan muchos tokens de entrada
+                    is_image_analysis = True
+                    tool_name = "image_analysis"
+                    logger.info("🖼️ Análisis de imagen completado.")
+            
+            if not tool_name:
+                if hasattr(result, 'tool_calls') and result.tool_calls:
+                    # El LLM decidió usar herramientas
+                    for tool in result.tool_calls:
+                        tool_name = tool.get("name")
+                        tool_args = tool.get("args")
+                        logger.info(f"🛠️ LLM EJECUTANDO TOOL: '{tool_name}' | Args: {tool_args}")
+                elif is_transcription:
+                    # Para transcripción, el "tool" es la transcripción misma
+                    tool_name = "transcription"
+                    logger.info("🎤 Transcripción de audio completada.")
+                else:
+                    # El LLM respondió con texto normal
+                    tool_name = "text_resp"
+                    logger.info("💬 LLM respondió con texto.")
 
             # 📝 REGISTRO EN DB (Fire and Forget)
             business_id = thread_id.split(':')[0] if ':' in thread_id else ""
 
-            event_type = "transcription" if is_transcription else ("llm_primary" if isLlmPrimary else "llm_fallback")
+            # Determinar event_type basado en el tipo de operación
+            if is_transcription:
+                event_type = "transcription"
+            elif is_image_analysis:
+                event_type = "image_analysis"
+            else:
+                event_type = "llm_primary" if isLlmPrimary else "llm_fallback"
 
             data = (
                 business_id,
