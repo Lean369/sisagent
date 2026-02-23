@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify
 from flask import Response
 # 🚀 1. Inicializar el logger ANTES que el resto del sistema
 inicializar_logger()
+from cliente_config import ClienteConfig
 from agente import procesar_mensaje, obtener_todas_las_tools, TOOLS_REGISTRY, transcribir_audio, analizar_imagen_con_ai
 from utilities import obtener_configuraciones
 from tools_hitl import decodificar_token_reactivacion
@@ -22,9 +23,31 @@ import os
 import base64
 import io
 from evolutionapi.client import EvolutionClient  # del paquete oficial
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 
 app = Flask(__name__)
+
+
+# Inicializa Sentry
+if os.getenv("SENTRY_ENABLED", "false").lower() == "true":
+    sentry_sdk.init(
+        dsn=os.getenv("DSN"), 
+        integrations=[
+            FlaskIntegration(),           # captura errores en rutas Flask
+            SqlalchemyIntegration(),      # captura errores en consultas DB
+            # Agrega más si usas Celery, Redis, etc.
+        ],
+        # Captura 100% en desarrollo, 10-20% en producción para no saturar
+        traces_sample_rate=1.0 if os.getenv("FLASK_ENV") == "development" else 0.2,   
+        # Perfiles de performance (útil para ver bottlenecks en agentes IA)
+        profiles_sample_rate=0.5,
+        environment=os.getenv("FLASK_ENV"),        # o "production"
+        release=os.getenv("RELEASE"),          # opcional: versión de tu app
+        send_default_pii=True,            # envía datos de usuario (email, ID) para mejor contexto
+    )
 
 
 # Pool de threads para manejar múltiples mensajes en paralelo
@@ -482,7 +505,7 @@ def webhook_chatwoot():
     try:
         data = request.json
         #logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:200]}")
-        logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)}")
+        logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:100]}...")
 
         # 1. Validar que el evento sea la creación de un mensaje
         if data.get('event') != 'message_created':
@@ -520,9 +543,8 @@ def webhook_chatwoot():
         logger.debug(f"Extracted data - business_id: {business_id}, user_id: {user_id}, conversation_id: {conversation_id}, account_id: {account_id}")
 
         # 5. Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
-        config_actual = obtener_configuraciones() 
-        info_negocio = config_actual.get(business_id)
-        ttl_minutos = info_negocio.get("ttl_sesion_minutos", 60)
+        info_negocio = ClienteConfig(business_id)
+        ttl_minutos = info_negocio.ttl_sesion_minutos or 60
 
         # 6. Delegar al ThreadPool (igual que hacías con WhatsApp)
         executor.submit(
@@ -551,7 +573,7 @@ def webhook():
     try:
         msg_id = "-"
         payload = request.json
-        logger.info(f"📨 Received webhook payload: {json.dumps(payload)}")
+        logger.info(f"📨 Received webhook payload: {json.dumps(payload)[:100]}...")
         
         # Extraer información del mensaje de Evolution API
         if payload.get('event') == 'messages.upsert':
@@ -589,10 +611,9 @@ def webhook():
                     logger.debug(f"🛡️ DDoS Protection: mensaje permitido de {user_id}")
             
             # Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
-            config_actual = obtener_configuraciones() 
-            info_negocio = config_actual.get(business_id)
-            ttl_minutos = info_negocio.get("ttl_sesion_minutos", 60)
-            audio_transcripcion = info_negocio.get("audio_transcripcion", True)
+            info_negocio = ClienteConfig(business_id)
+            ttl_minutos = info_negocio.ttl_sesion_minutos or 60
+            audio_transcripcion = info_negocio.audio_transcripcion or True
 
             #[TEXTO] Procesar mensaje de texto normal
             if mensaje and user_id and not from_me:          

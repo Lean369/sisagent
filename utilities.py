@@ -39,9 +39,7 @@ def obtener_configuraciones():
             _LAST_MTIME = current_mtime
             
             logger.info(f"✅ Configuración recargada: {len(_CONFIG_CACHE)} negocios.")
-            
-            # (Opcional) Regenerar herramientas si cambian dinámicamente
-            # obtener_todas_las_tools() 
+
 
         return _CONFIG_CACHE
 
@@ -49,53 +47,6 @@ def obtener_configuraciones():
         logger.exception(f"🔴 Error leyendo config en caliente: {e}")
         # En caso de error, devolvemos lo que teníamos antes para no romper la app
         return _CONFIG_CACHE
-
-
-def es_horario_laboral(info_negocio) -> tuple[bool, str]:
-    ahora = datetime.now()
-    logger.debug(f"⏰ Verificando horario laboral para negocio: {info_negocio}")
-    fuera_de_servicio_activo = info_negocio.get('fuera_de_servicio', {}).get('activo', False) if info_negocio else False
-    horario_inicio = info_negocio.get('fuera_de_servicio', {}).get('horario_inicio', '09:00') if info_negocio else '09:00'
-    horario_fin = info_negocio.get('fuera_de_servicio', {}).get('horario_fin', '18:00') if info_negocio else '18:00'
-    dias_laborales = info_negocio.get('fuera_de_servicio', {}).get('dias_laborales', [1, 2, 3, 4, 5]) if info_negocio else [1, 2, 3, 4, 5]
-    mensaje = info_negocio.get('fuera_de_servicio', {}).get('mensaje', []) if info_negocio else ''
-    logger.info(f"💼 Horario comercial: de {horario_inicio} a {horario_fin}hs. ({obtener_nombres_dias(dias_laborales)})")
-
-    if fuera_de_servicio_activo == False:
-        return True, ""  # Si no está activo el fuera de servicio, siempre es horario laboral
-
-    # Parsear horas configuradas (formato HH:MM) y días (lista de números)
-    try:
-        start_hour = int(horario_inicio.split(':')[0])
-    except Exception:
-        start_hour = 9
-    try:
-        end_hour = int(horario_fin.split(':')[0])
-    except Exception:
-        end_hour = 18
-
-    try:
-        # Convertir lista de números (1-7) a índices de weekday (0-6)
-        if isinstance(dias_laborales, list):
-            allowed_weekdays = [int(d) - 1 for d in dias_laborales if isinstance(d, (int, str)) and 1 <= int(d) <= 7]
-        elif isinstance(dias_laborales, str):
-            allowed_weekdays = [int(d.strip()) - 1 for d in dias_laborales.split(',') if d.strip().isdigit()]
-        else:
-            allowed_weekdays = [0, 1, 2, 3, 4]  # Lunes a Viernes por defecto
-    except Exception:
-        allowed_weekdays = [0, 1, 2, 3, 4]
-
-    if isinstance(mensaje, list):
-        mensaje_unido = ' '.join(mensaje)  # Une los strings con espacios
-    else:
-        mensaje_unido = mensaje
-
-    if mensaje_unido:
-        msg = mensaje_unido 
-    else:
-        msg = f"⏰ Actualmente estamos fuera de servicio. Por favor, contáctanos de {horario_inicio} a {horario_fin}hs. ({obtener_nombres_dias(dias_laborales)}). ¡Gracias por tu comprensión! 👋"
-    
-    return (ahora.weekday() in allowed_weekdays) and (start_hour <= ahora.hour < end_hour), msg
 
 
 def obtener_nombres_dias(dias_laborales=[1, 2, 3, 4, 5]) -> str:

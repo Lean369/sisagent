@@ -26,7 +26,8 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
 
 # --- Imports de Herramientas ---
-from utilities import es_horario_laboral, obtener_nombres_dias, obtener_configuraciones, gestionar_expiracion_sesion
+from cliente_config import ClienteConfig
+from utilities import obtener_configuraciones, gestionar_expiracion_sesion
 from tools_crm import trigger_booking_tool, consultar_stock, ver_menu
 from tools_hitl import solicitar_atencion_humana
 from tools_rag import consultar_base_conocimiento
@@ -137,7 +138,7 @@ class State(TypedDict):
 
 
 # Prompting Dinámico "Zero-Storage". Se inyecta el SystemMessage al vuelo en la variable mensajes_entrada.
-# Recibe el estado anteror de la conversación (state) y la configuración del negocio (config) para decidir qué prompt, herramientas y puede devuelve un estado nuevo / actualizado
+# Recibe el estado anterior de la conversación (state) y la configuración del negocio (config) para decidir qué prompt, herramientas utilizar. Puede devolver un estado nuevo / actualizado.
 # NO lo agrego al state para ahorrar tokens en la DB.
 # Si se cambia la configuración del negocio, se aplica inmediatamente.
 def nodo_chatbot(state: State, config: RunnableConfig):
@@ -148,21 +149,26 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     nombre_cliente = configurable.get("client_name", "Cliente")
     thread_id = configurable.get("thread_id", "unknown_thread")
     
-    # 2. Recuperar Configuración desde archivo config_negocios.json
-    config_actual = obtener_configuraciones() 
-    info_negocio = config_actual.get(business_id)
+    # Instanciamos el objeto
+    info_negocio = ClienteConfig(business_id)
+
+    #info_negocio = config_actual.get(business_id)
     if not info_negocio:
         logger.error(f"🔴 No se encontró configuración para business_id: {business_id}.")
         return {"messages": [AIMessage(content="No se encontró la configuración del negocio. Por favor, contacta al soporte.")]}
     
-    logger.info(f"💼 Negocio: {business_id} | Thread: {thread_id}")
+    logger.info(f"💼 Negocio: {business_id} ({info_negocio.nombre}) | Thread: {thread_id}")
 
     # 3. Verificar horario laboral
-    en_horario, mensaje_fuera_horario = es_horario_laboral(info_negocio)
+    en_horario, mensaje_fuera_horario = info_negocio.es_horario_laboral()
     if not en_horario:
         logger.info(f"⏰ Fuera de horario laboral para {business_id}. Respondiendo con mensaje de fuera de servicio.")
         return {"messages": [AIMessage(content=mensaje_fuera_horario)]}
 
+    if not info_negocio.enabled:
+        logger.info(f"⏰ Negocio {business_id} deshabilitado. Respondiendo con mensaje de fuera de servicio.")
+        return {"messages": [AIMessage(content="El negocio está temporalmente fuera de servicio. Disculpa las molestias.")]}
+    
     # ---------------------HITL------------------------------------
     mensajes_historia = state["messages"]
     bot_pausado = False
@@ -180,16 +186,14 @@ def nodo_chatbot(state: State, config: RunnableConfig):
             bot_pausado = True
             break
     
+    # Retornamos una lista vacía o un mensaje nulo para detener el grafo sin romper la ejecución. 
     if bot_pausado:
         logger.warning(f"⛔ Bot pausado para {business_id} (Derivación activa). Ignorando mensaje.")
-        # Retornamos una lista vacía o un mensaje nulo para detener el grafo
-        # Dependiendo de tu versión de LangGraph, esto puede requerir devolver un dict vacío
-        # o un mensaje especial.
         return {"messages": []} 
     # ---------------------------------------------------------
 
     # 4. Convertir nombres de tools a objetos tool
-    tools_nombres = info_negocio.get('tools_habilitadas', []) if info_negocio else []
+    tools_nombres = info_negocio.tools_habilitadas if info_negocio else []
     mis_tools = []
     for tool_nombre in tools_nombres:
         if isinstance(tool_nombre, str) and tool_nombre in TOOLS_REGISTRY:
@@ -211,7 +215,7 @@ def nodo_chatbot(state: State, config: RunnableConfig):
     if len(mensajes_historia) == 1:
         logger.info("👋 Detectada nueva conversación.")
 
-    prompt_sistema = info_negocio['system_prompt'] if info_negocio else "Eres un asistente útil."
+    prompt_sistema = info_negocio.system_prompt if info_negocio else "Eres un asistente útil."
     if isinstance(prompt_sistema, list):
         prompt_sistema_unido = "\n".join(prompt_sistema)  # Une los strings con saltos de línea
     else:

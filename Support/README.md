@@ -2153,3 +2153,13 @@ sisagent/
 ├── .env                        # Variables de entorno (configuración, no lógica)
 ├── .gitignore
 └── migrations/                 # Migraciones de Alembic
+
+## FIX DBEaver
+
+El problema es que DBeaver envía America/Buenos_Aires como parámetro de conexión, pero PostgreSQL solo acepta America/Argentina/Buenos_Aires. El ALTER DATABASE no ayuda porque el error ocurre antes de que se establezca la conexión.
+
+```bash
+sudo ln -s /usr/share/zoneinfo/America/Argentina/Buenos_Aires /usr/share/zoneinfo/America/Buenos_Aires && echo "✅ Symlink creado"
+
+sudo systemctl restart postgresql && sleep 2 && sudo -u postgres psql -c "SET timezone TO 'America/Buenos_Aires'; SELECT now();"
+```
