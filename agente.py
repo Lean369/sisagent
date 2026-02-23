@@ -31,6 +31,7 @@ from tools_crm import trigger_booking_tool, consultar_stock, ver_menu
 from tools_hitl import solicitar_atencion_humana
 from tools_rag import consultar_base_conocimiento
 from tools_n8n import invoke_n8n
+from tools_calendar import completar_auth_calendar, agendar_cita_calendar, consultar_citas_calendar
 from analytics import registrar_evento
 
 # Cargar .env
@@ -59,7 +60,9 @@ TOOLS_REGISTRY = {
     "trigger_booking_tool": trigger_booking_tool,
     "solicitar_atencion_humana": solicitar_atencion_humana,
     "consultar_base_conocimiento": consultar_base_conocimiento,
-    "invoke_n8n": invoke_n8n    
+    "invoke_n8n": invoke_n8n,
+    "agendar_cita_calendar": agendar_cita_calendar,
+    "consultar_citas_calendar": consultar_citas_calendar
 }
 
 # ==============================================================================
@@ -226,8 +229,8 @@ def nodo_chatbot(state: State, config: RunnableConfig):
 
     INTERNAL_CLOCK_IN_CONTEXT = os.getenv("INTERNAL_CLOCK_IN_CONTEXT", "false").lower()
     if INTERNAL_CLOCK_IN_CONTEXT == "true":
-        ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        dia_semana = datetime.datetime.now().strftime("%A") # Ej: Monday, Tuesday.
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        dia_semana = datetime.now().strftime("%A") # Ej: Monday, Tuesday.
         prompt_final = (
         f"{prompt_final}\n"
         f"RELOJ INTERNO: Hoy es {dia_semana}, {ahora}.\n"
@@ -574,9 +577,27 @@ def analizar_imagen_con_ai(image_buffer: bytes, thread_id: str, caption: str = N
         image_base64 = base64.b64encode(image_buffer).decode('utf-8')
         
         # Crear el prompt
-        prompt_text = "Describe detalladamente esta imagen."
+        prompt_text = """Analiza esta imagen y extrae TODA la información visible relacionada con citas, eventos o agendas.
+
+Busca e identifica:
+- Nombre completo de la persona
+- Fecha (día, mes, año)
+- Hora exacta (formato 24h si es posible)
+- Motivo, tipo de cita o descripción del evento
+
+Si encuentras esta información, preséntala de forma clara y estructurada.
+Si NO hay información de citas en la imagen, describe lo que ves."""
+        
         if caption:
-            prompt_text = f"El usuario envió esta imagen con el siguiente texto: '{caption}'. Analiza la imagen y responde en relación al texto."
+            prompt_text = f"""El usuario envió esta imagen con el texto: '{caption}'.
+
+Analiza la imagen y extrae TODA la información relacionada con citas o eventos:
+- Nombre completo
+- Fecha (formato: día/mes/año)
+- Hora (formato 24h preferentemente)
+- Motivo o descripción
+
+Responde en relación al texto del usuario y estructura la información claramente."""
         
         start_time = time.time()
         

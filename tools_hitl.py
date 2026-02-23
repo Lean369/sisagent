@@ -111,7 +111,7 @@ def solicitar_atencion_humana(motivo: str, config: RunnableConfig) -> str:
         }
 
         telefono = cliente_telefono if cliente_telefono else "unknown"
-        msg = f"[---TOOL---] 📤 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_DESACTIVADO"
+        msg = f"[---TOOL---] 🔧 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_DESACTIVADO"
         generar_resumen_auditoria(business_id, msg)
 
         # --- ACCIÓN A: AVISAR AL DUEÑO ---
@@ -208,7 +208,7 @@ def solicitar_atencion_humana_chatwoot(motivo: str, config: RunnableConfig) -> s
         logger.info(f"🔄 Conversación {conversation_id} derivada a humanos exitosamente.")
         
         telefono = "unknown"
-        msg = f"[---TOOL---] 📤 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_DESACTIVADO"
+        msg = f"[---TOOL---] 🔧 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_DESACTIVADO"
         generar_resumen_auditoria(account_id, msg)
 
         # Le decimos al LLM qué pasó para que se despida
