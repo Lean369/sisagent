@@ -13,6 +13,7 @@ ENV/
 .coverage
 chroma_db/
 documentos_negocio/
+tokens_calendar/
 
 # Google Calendar Credentials - NEVER COMMIT!
 credentials.json
