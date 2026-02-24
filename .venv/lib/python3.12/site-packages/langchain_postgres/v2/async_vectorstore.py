@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import datetime
 import json
 import uuid
 from typing import Any, Callable, Iterable, Optional, Sequence
@@ -53,6 +54,16 @@ SUPPORTED_OPERATORS = (
     .union(LOGICAL_OPERATORS)
     .union(SPECIAL_CASED_OPERATORS)
 )
+
+PYTHON_TO_POSTGRES_TYPE_MAP = {
+    int: "INTEGER",
+    float: "FLOAT",
+    str: "TEXT",
+    bool: "BOOLEAN",
+    datetime.date: "DATE",
+    datetime.datetime: "TIMESTAMP",
+    datetime.time: "TIME",
+}
 
 
 class AsyncPGVectorStore(VectorStore):
@@ -318,7 +329,11 @@ class AsyncPGVectorStore(VectorStore):
             for metadata_column in self.metadata_columns:
                 if metadata_column in metadata:
                     values_stmt += f", :{metadata_column}"
-                    values[metadata_column] = metadata[metadata_column]
+                    values[metadata_column] = (
+                        json.dumps(metadata[metadata_column])
+                        if isinstance(metadata[metadata_column], dict)
+                        else metadata[metadata_column]
+                    )
                     del extra[metadata_column]
                 else:
                     values_stmt += ",null"
@@ -400,19 +415,60 @@ class AsyncPGVectorStore(VectorStore):
     async def adelete(
         self,
         ids: Optional[list] = None,
+        filter: Optional[dict] = None,
         **kwargs: Any,
     ) -> Optional[bool]:
         """Delete records from the table.
 
+        Args:
+            ids: List of document IDs to delete.
+            filter: Metadata filter dictionary for bulk deletion.
+                   Supports the same filter syntax as similarity_search.
+                   Note: Filters only work on fields defined in metadata_columns,
+                   not on fields stored in the metadata_json_column.
+
+        Returns:
+            True if deletion was successful, False if no criteria provided.
+
         Raises:
             :class:`InvalidTextRepresentationError <asyncpg.exceptions.InvalidTextRepresentationError>`: if the `ids` data type does not match that of the `id_column`.
+
+        Examples:
+            Delete by IDs:
+                await vectorstore.adelete(ids=["id1", "id2"])
+
+            Delete by metadata filter (requires metadata_columns):
+                await vectorstore.adelete(filter={"source": "documentation"})
+                await vectorstore.adelete(filter={"$and": [{"category": "obsolete"}, {"year": {"$lt": 2020}}]})
+
+            Delete by both IDs and filter (must match both criteria):
+                await vectorstore.adelete(ids=["id1", "id2"], filter={"status": "archived"})
         """
-        if not ids:
+        if not ids and not filter:
             return False
 
-        placeholders = ", ".join(f":id_{i}" for i in range(len(ids)))
-        param_dict = {f"id_{i}": id for i, id in enumerate(ids)}
-        query = f'DELETE FROM "{self.schema_name}"."{self.table_name}" WHERE {self.id_column} in ({placeholders})'
+        where_clauses = []
+        param_dict = {}
+
+        # Handle ID-based deletion
+        if ids:
+            placeholders = ", ".join(f":id_{i}" for i in range(len(ids)))
+            id_params = {f"id_{i}": id for i, id in enumerate(ids)}
+            param_dict.update(id_params)
+            where_clauses.append(f"{self.id_column} in ({placeholders})")
+
+        # Handle filter-based deletion
+        if filter:
+            filter_clause, filter_params = self._create_filter_clause(filter)
+            param_dict.update(filter_params)
+            where_clauses.append(filter_clause)
+
+        # Combine WHERE clauses with AND if both are present
+        where_clause = " AND ".join(where_clauses)
+        query = (
+            f'DELETE FROM "{self.schema_name}"."{self.table_name}" WHERE {where_clause}'
+        )
+
         async with self.engine.connect() as conn:
             await conn.execute(text(query), param_dict)
             await conn.commit()
@@ -671,6 +727,39 @@ class AsyncPGVectorStore(VectorStore):
             )
             return combined_results
         return dense_results
+
+    async def __query_collection_with_filter(
+        self,
+        *,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        filter: Optional[dict] = None,
+        columns: list[str],
+        **kwargs: Any,
+    ) -> Sequence[RowMapping]:
+        """Asynchronously query the database collection using filters and parameters and return matching rows."""
+
+        column_names = ", ".join(f'"{col}"' for col in columns)
+
+        safe_filter = None
+        filter_dict = None
+        if filter and isinstance(filter, dict):
+            safe_filter, filter_dict = self._create_filter_clause(filter)
+
+        suffix_id = str(uuid.uuid4()).split("-")[0]
+        where_filters = f"WHERE {safe_filter}" if safe_filter else ""
+        dense_query_stmt = f"""SELECT {column_names}
+        FROM "{self.schema_name}"."{self.table_name}" {where_filters} LIMIT :limit_{suffix_id} OFFSET :offset_{suffix_id};
+        """
+        param_dict = {f"limit_{suffix_id}": limit, f"offset_{suffix_id}": offset}
+        if filter_dict:
+            param_dict.update(filter_dict)
+        async with self.engine.connect() as conn:
+            result = await conn.execute(text(dense_query_stmt), param_dict)
+            result_map = result.mappings()
+            results = result_map.fetchall()
+
+        return results
 
     async def asimilarity_search(
         self,
@@ -957,7 +1046,7 @@ class AsyncPGVectorStore(VectorStore):
     async def areindex(self, index_name: Optional[str] = None) -> None:
         """Re-index the vector store table."""
         index_name = index_name or self.table_name + DEFAULT_INDEX_NAME_SUFFIX
-        query = f'REINDEX INDEX "{index_name}";'
+        query = f'REINDEX INDEX "{self.schema_name}"."{index_name}";'
         async with self.engine.connect() as conn:
             await conn.execute(text(query))
             await conn.commit()
@@ -968,7 +1057,7 @@ class AsyncPGVectorStore(VectorStore):
     ) -> None:
         """Drop the vector index."""
         index_name = index_name or self.table_name + DEFAULT_INDEX_NAME_SUFFIX
-        query = f'DROP INDEX IF EXISTS "{index_name}";'
+        query = f'DROP INDEX IF EXISTS "{self.schema_name}"."{index_name}";'
         async with self.engine.connect() as conn:
             await conn.execute(text(query))
             await conn.commit()
@@ -994,6 +1083,73 @@ class AsyncPGVectorStore(VectorStore):
             result_map = result.mappings()
             results = result_map.fetchall()
         return bool(len(results) == 1)
+
+    async def aget(
+        self,
+        ids: Optional[Sequence[str]] = None,
+        where: Optional[dict] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        where_document: Optional[dict] = None,
+        include: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Retrieve documents from the collection using filters and parameters."""
+        filters: list[dict] = []
+        if ids:
+            filters.append({self.id_column: {"$in": list(ids)}})
+        if where:
+            filters.append(where)
+        if where_document:
+            filters.append({self.content_column: where_document})
+
+        final_filter = {"$and": filters} if filters else None
+
+        if include is None:
+            include = ["metadatas", "documents"]
+
+        fields_mapping = {
+            "embeddings": [self.embedding_column],
+            "metadatas": self.metadata_columns + [self.metadata_json_column]
+            if self.metadata_json_column
+            else self.metadata_columns,
+            "documents": [self.content_column],
+        }
+
+        included_fields = ["ids"]
+        columns = [self.id_column]
+
+        for field, cols in fields_mapping.items():
+            if field in include:
+                included_fields.append(field)
+                columns.extend(cols)
+
+        results = await self.__query_collection_with_filter(
+            limit=limit, offset=offset, filter=final_filter, columns=columns, **kwargs
+        )
+
+        final_results: dict[str, list] = {field: [] for field in included_fields}
+
+        for row in results:
+            final_results["ids"].append(str(row[self.id_column]))
+
+            if "metadatas" in final_results:
+                metadata = (
+                    row.get(self.metadata_json_column) or {}
+                    if self.metadata_json_column
+                    else {}
+                )
+                for col in self.metadata_columns:
+                    metadata[col] = row[col]
+                final_results["metadatas"].append(metadata)
+
+            if "documents" in final_results:
+                final_results["documents"].append(row[self.content_column])
+
+            if "embeddings" in final_results:
+                final_results["embeddings"].append(row[self.embedding_column])
+
+        return final_results
 
     async def aget_by_ids(self, ids: Sequence[str]) -> list[Document]:
         """Get documents by ids."""
@@ -1068,7 +1224,10 @@ class AsyncPGVectorStore(VectorStore):
             )
 
         # Allow [a-zA-Z0-9_], disallow $ for now until we support escape characters
-        if not field.isidentifier():
+        if not (
+            field.isidentifier()
+            or all(field_split.isidentifier() for field_split in field.split("."))
+        ):
             raise ValueError(
                 f"Invalid field name: {field}. Expected a valid identifier."
             )
@@ -1093,22 +1252,57 @@ class AsyncPGVectorStore(VectorStore):
             operator = "$eq"
             filter_value = value
 
+        field_selector = field
+        field_column = field.split(".")[0]
+        field_param_prefix = field.replace(".", "_")
+
+        if (
+            self.metadata_json_column is not None
+            and field_column not in self.metadata_columns
+            and field_column
+            not in (self.id_column, self.content_column, self.embedding_column)
+        ):
+            field_selector = f"{self.metadata_json_column}.{field_selector}"
+
+        if "." in field_selector:
+            field_selector = "->".join(
+                field_split
+                if ind == 0
+                else f"{'>' if ind == field_selector.count('.') else ''}'{field_split}'"
+                for ind, field_split in enumerate(field_selector.split("."))
+            )
+            filter_value_type = (
+                type(filter_value[0])
+                if (isinstance(filter_value, list) or isinstance(filter_value, tuple))
+                else type(filter_value)
+            )
+            postgres_type = PYTHON_TO_POSTGRES_TYPE_MAP.get(filter_value_type)
+            if postgres_type is None:
+                raise ValueError(f"Unsupported type: {filter_value_type}")
+            if postgres_type != "TEXT" and operator != "$exists":
+                field_selector = f"({field_selector})::{postgres_type}"
+
         suffix_id = str(uuid.uuid4()).split("-")[0]
         if operator in COMPARISONS_TO_NATIVE:
             # Then we implement an equality filter
             # native is trusted input
             native = COMPARISONS_TO_NATIVE[operator]
-            param_name = f"{field}_{suffix_id}"
-            return f"{field} {native} :{param_name}", {f"{param_name}": filter_value}
+            param_name = f"{field_param_prefix}_{suffix_id}"
+            return f"{field_selector} {native} :{param_name}", {
+                f"{param_name}": filter_value
+            }
         elif operator == "$between":
             # Use AND with two comparisons
             low, high = filter_value
-            low_param_name = f"{field}_low_{suffix_id}"
-            high_param_name = f"{field}_high_{suffix_id}"
-            return f"({field} BETWEEN :{low_param_name} AND :{high_param_name})", {
-                f"{low_param_name}": low,
-                f"{high_param_name}": high,
-            }
+            low_param_name = f"{field_param_prefix}_low_{suffix_id}"
+            high_param_name = f"{field_param_prefix}_high_{suffix_id}"
+            return (
+                f"({field_selector} BETWEEN :{low_param_name} AND :{high_param_name})",
+                {
+                    f"{low_param_name}": low,
+                    f"{high_param_name}": high,
+                },
+            )
         elif operator in {"$in", "$nin"}:
             # We'll do force coercion to text
             for val in filter_value:
@@ -1121,20 +1315,26 @@ class AsyncPGVectorStore(VectorStore):
                     raise NotImplementedError(
                         f"Unsupported type: {type(val)} for value: {val}"
                     )
-            param_name = f"{field}_{operator.replace('$', '')}_{suffix_id}"
+            param_name = f"{field_param_prefix}_{operator.replace('$', '')}_{suffix_id}"
             if operator == "$in":
-                return f"{field} = ANY(:{param_name})", {f"{param_name}": filter_value}
+                return f"{field_selector} = ANY(:{param_name})", {
+                    f"{param_name}": filter_value
+                }
             else:  # i.e. $nin
-                return f"{field} <> ALL (:{param_name})", {
+                return f"{field_selector} <> ALL (:{param_name})", {
                     f"{param_name}": filter_value
                 }
 
         elif operator in {"$like", "$ilike"}:
-            param_name = f"{field}_{operator.replace('$', '')}_{suffix_id}"
+            param_name = f"{field_param_prefix}_{operator.replace('$', '')}_{suffix_id}"
             if operator == "$like":
-                return f"({field} LIKE :{param_name})", {f"{param_name}": filter_value}
+                return f"({field_selector} LIKE :{param_name})", {
+                    f"{param_name}": filter_value
+                }
             else:  # i.e. $ilike
-                return f"({field} ILIKE :{param_name})", {f"{param_name}": filter_value}
+                return f"({field_selector} ILIKE :{param_name})", {
+                    f"{param_name}": filter_value
+                }
         elif operator == "$exists":
             if not isinstance(filter_value, bool):
                 raise ValueError(
@@ -1143,9 +1343,9 @@ class AsyncPGVectorStore(VectorStore):
                 )
             else:
                 if filter_value:
-                    return f"({field} IS NOT NULL)", {}
+                    return f"({field_selector} IS NOT NULL)", {}
                 else:
-                    return f"({field} IS NULL)", {}
+                    return f"({field_selector} IS NULL)", {}
         else:
             raise NotImplementedError()
 
@@ -1249,6 +1449,20 @@ class AsyncPGVectorStore(VectorStore):
         else:
             return "", {}
 
+    def get(
+        self,
+        ids: Optional[Sequence[str]] = None,
+        where: Optional[dict] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        where_document: Optional[dict] = None,
+        include: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        raise NotImplementedError(
+            "Sync methods are not implemented for AsyncPGVectorStore. Use PGVectorStore interface instead."
+        )
+
     def get_by_ids(self, ids: Sequence[str]) -> list[Document]:
         raise NotImplementedError(
             "Sync methods are not implemented for AsyncPGVectorStore. Use PGVectorStore interface instead."
@@ -1278,8 +1492,35 @@ class AsyncPGVectorStore(VectorStore):
     def delete(
         self,
         ids: Optional[list] = None,
+        filter: Optional[dict] = None,
         **kwargs: Any,
     ) -> Optional[bool]:
+        """Delete records from the table.
+
+        Args:
+            ids: List of document IDs to delete.
+            filter: Metadata filter dictionary for bulk deletion.
+                   Supports the same filter syntax as similarity_search.
+                   Note: Filters only work on fields defined in metadata_columns,
+                   not on fields stored in the metadata_json_column.
+
+        Returns:
+            True if deletion was successful, False if no criteria provided.
+
+        Raises:
+            :class:`InvalidTextRepresentationError <asyncpg.exceptions.InvalidTextRepresentationError>`: if the `ids` data type does not match that of the `id_column`.
+
+        Examples:
+            Delete by IDs:
+                vectorstore.delete(ids=["id1", "id2"])
+
+            Delete by metadata filter (requires metadata_columns):
+                vectorstore.delete(filter={"source": "documentation"})
+                vectorstore.delete(filter={"$and": [{"category": "obsolete"}, {"year": {"$lt": 2020}}]})
+
+            Delete by both IDs and filter (must match both criteria):
+                vectorstore.delete(ids=["id1", "id2"], filter={"status": "archived"})
+        """
         raise NotImplementedError(
             "Sync methods are not implemented for AsyncPGVectorStore. Use PGVectorStore interface instead."
         )

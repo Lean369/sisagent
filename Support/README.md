@@ -69,6 +69,11 @@ Sistema de agente conversacional inteligente que integra WhatsApp (vía Evolutio
 # 0. Full
 cd /home/leanusr/sisagent && python3 -m venv .venv && ./.venv/bin/python -m pip install --upgrade pip setuptools wheel && ./.venv/bin/pip install -r requirements.txt
 
+python3 -m venv .venv && ./.venv/bin/python -m pip install --upgrade pip setuptools wheel && ./.venv/bin/pip install -r requirements.txt
+
+# FFmpeg debe instalarse por separado a nivel del sistema operativo
+sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+
 # 1. Crear entorno virtual
 python3 -m venv venv
 source venv/bin/activate  # En Windows: venv\Scripts\activate
@@ -82,6 +87,8 @@ cp .env.example .env
 
 # 4. Ejecutar el agente
 ./venv/bin/python agent.py
+
+
 ```
 
 ## Configuración

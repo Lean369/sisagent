@@ -810,8 +810,8 @@ def reactivar_bot_web():
             logger.warning(f"🤖 CRAWLER DETECTADO: {user_agent[:150]} - Bloqueando reactivación automática")
             
             # URL de la imagen para el preview (puede ser personalizada por negocio)
-            preview_image_url = "https://sisagent.sisnova.org/static/logo-sisnova3.png"
-            
+            preview_image_url = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/static/logo-sisnova3.png"
+                   
             return f"""
             <html>
                 <head>
@@ -1485,7 +1485,7 @@ if __name__ == "__main__":
     try:
         app.run(
             host='0.0.0.0',
-            port=5001,
+            port=int(os.getenv('APP_PORT', 5000)),
             threaded=True,  # Importante para manejar concurrencia
             debug=False
         )

@@ -1,6 +1,6 @@
 #!/bin/bash
-# chmod +x init_metrics_db.sh
-# ./init_metrics_db.sh
+# chmod +x DB/init_metrics_db.sh
+# ./DB/init_metrics_db.sh
 
 # ==========================================
 # Script de Inicialización de Métricas DB

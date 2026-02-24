@@ -157,7 +157,6 @@ LLM | Google Gemini 1.5 Flash / GPT-4o | Modelos de lenguaje principales y de ba
 Database | PostgreSQL + Psycopg3 | Almacenamiento de memoria conversacional (Checkpoints).
 Mensajería | Evolution API v2 | Pasarela de WhatsApp.
 Integraciones | Google APIs, Krayin CRM | Herramientas de negocio conectadas.
-Infraestructura | Docker | Contenerización recomendada para despliegue.
 
 ## 6. Configuración y Mantenimiento
 Archivo config_negocios.json

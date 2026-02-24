@@ -20,7 +20,7 @@ fi
 # Si no están en el .env, usa valores por defecto
 HOST="${DB_HOST:-localhost}"
 PORT="${DB_PORT:-5432}"
-USER="${DB_USER:-postgres}"
+USER="${DB_USER:-sisbot_user}"
 DBNAME="${DB_NAME_AGENT:-checkpointer_db}"
 
 # Nota: PGPASSWORD es la variable de entorno que psql busca para la contraseña
@@ -33,8 +33,8 @@ SQL_COMMANDS="
 ALTER TABLE checkpoints ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 CREATE INDEX IF NOT EXISTS idx_checkpoints_created_at ON checkpoints (created_at);
 "
-# 4. Ejecutar comando en Docker o Localmente
-# Detectamos si tenemos el comando psql instalado
+
+# 4. Ejecutar comando en PostgreSQL local
 if command -v psql &> /dev/null; then
     psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DBNAME" -c "$SQL_COMMANDS"
     

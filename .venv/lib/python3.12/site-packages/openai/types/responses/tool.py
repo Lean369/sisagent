@@ -14,6 +14,8 @@ from .apply_patch_tool import ApplyPatchTool
 from .file_search_tool import FileSearchTool
 from .function_shell_tool import FunctionShellTool
 from .web_search_preview_tool import WebSearchPreviewTool
+from .container_network_policy_disabled import ContainerNetworkPolicyDisabled
+from .container_network_policy_allowlist import ContainerNetworkPolicyAllowlist
 
 __all__ = [
     "Tool",
@@ -28,6 +30,7 @@ __all__ = [
     "CodeInterpreter",
     "CodeInterpreterContainer",
     "CodeInterpreterContainerCodeInterpreterToolAuto",
+    "CodeInterpreterContainerCodeInterpreterToolAutoNetworkPolicy",
     "ImageGeneration",
     "ImageGenerationInputImageMask",
     "LocalShell",
@@ -174,6 +177,11 @@ class Mcp(BaseModel):
     """
 
 
+CodeInterpreterContainerCodeInterpreterToolAutoNetworkPolicy: TypeAlias = Annotated[
+    Union[ContainerNetworkPolicyDisabled, ContainerNetworkPolicyAllowlist], PropertyInfo(discriminator="type")
+]
+
+
 class CodeInterpreterContainerCodeInterpreterToolAuto(BaseModel):
     """Configuration for a code interpreter container.
 
@@ -188,6 +196,9 @@ class CodeInterpreterContainerCodeInterpreterToolAuto(BaseModel):
 
     memory_limit: Optional[Literal["1g", "4g", "16g", "64g"]] = None
     """The memory limit for the code interpreter container."""
+
+    network_policy: Optional[CodeInterpreterContainerCodeInterpreterToolAutoNetworkPolicy] = None
+    """Network access policy for the container."""
 
 
 CodeInterpreterContainer: TypeAlias = Union[str, CodeInterpreterContainerCodeInterpreterToolAuto]
@@ -227,6 +238,9 @@ class ImageGeneration(BaseModel):
     type: Literal["image_generation"]
     """The type of the image generation tool. Always `image_generation`."""
 
+    action: Optional[Literal["generate", "edit", "auto"]] = None
+    """Whether to generate a new image or edit an existing image. Default: `auto`."""
+
     background: Optional[Literal["transparent", "opaque", "auto"]] = None
     """Background type for the generated image.
 
@@ -237,8 +251,8 @@ class ImageGeneration(BaseModel):
     """
     Control how much effort the model will exert to match the style and features,
     especially facial features, of input images. This parameter is only supported
-    for `gpt-image-1`. Unsupported for `gpt-image-1-mini`. Supports `high` and
-    `low`. Defaults to `low`.
+    for `gpt-image-1` and `gpt-image-1.5` and later models, unsupported for
+    `gpt-image-1-mini`. Supports `high` and `low`. Defaults to `low`.
     """
 
     input_image_mask: Optional[ImageGenerationInputImageMask] = None
@@ -247,7 +261,7 @@ class ImageGeneration(BaseModel):
     Contains `image_url` (string, optional) and `file_id` (string, optional).
     """
 
-    model: Union[str, Literal["gpt-image-1", "gpt-image-1-mini"], None] = None
+    model: Union[str, Literal["gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5"], None] = None
     """The image generation model to use. Default: `gpt-image-1`."""
 
     moderation: Optional[Literal["auto", "low"]] = None

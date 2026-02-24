@@ -1,5 +1,5 @@
 {
-  "cliente2": {
+  "cliente1": {
     "nombre": "Dola",
     "enabled": true,
     "ttl_sesion_minutos": 60,
@@ -106,7 +106,7 @@
       "consultar_base_conocimiento"
     ]
   },
-  "cliente1": {
+  "cliente11": {
     "nombre": "Nike Store Palermo",
     "enabled": true,
     "ttl_sesion_minutos": 60,
@@ -137,7 +137,7 @@
     "mensaje_usuario_1": [],
     "tools_habilitadas": []
   },
-  "cliente5": {
+  "cliente2": {
     "nombre": "Luigi's Pizza",
     "enabled": true,
     "admin_phone": "5491131376731",

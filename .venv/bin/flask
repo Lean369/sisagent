@@ -1,4 +1,4 @@
-#!/home/leanusr/sisagent/.venv/bin/python
+#!/root/sisagent/sisagent-flask-directo/.venv/bin/python
 import sys
 from flask.cli import main
 if __name__ == '__main__':
