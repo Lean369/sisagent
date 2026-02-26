@@ -82,16 +82,16 @@ curl -X POST "https://evoapi.sisnova.com.ar/instance/create" \
   -H "apikey: 9d15c6d04d216cc8becc3721d8199c20" \
   -H "Content-Type: application/json" \
   -d '{
-    "instanceName": "cliente3",
+    "instanceName": "wsapi-sisnova",
     "integration": "WHATSAPP-BUSINESS",
-    "number": "737848872742026",
-    "businessId": "1438011697324728",
-    "token": "EAARU4bSxtyYBO1XzfvLKB4PXfAoIAt4GYGqQgGb4ZA3fhbnWbJ8qxu7lS12HkGZAGcjvOaWUsrXcYJxfBdv2wdJnQYj9Ivm1QEgRo0ftX3mbafLAmsaNrZCevFx3jPHgZCkzNNaRXJS2FQGKIrkpJqXIORZB5KJZBavlMfn8cPmqR1bSe4gG5HPZBtUqNlEZBvVDwwZDZD"
+    "number": "992059843994228",
+    "businessId": "746088638381916",
+    "token": "EAAbAU6YHbzQBQwtyoFjBjc4b6fnUnAjDwEGJlRdGZCLjpiNeGi824aG953V9uGSpMlOfWJli6XZB7WNX5ed3Wvet87bT7rpaFOKZCxhFpFKOicA8yyBPRpqEOmPOr4AMFK9nLMW15vd5hoaS2GztiJsYHV1jioJ18Ggbostdu1YNjhHwDgrVQ4YCKJoIUIiZBwZDZD"
   }'
 ```
 ```bash
 # Configurar webhook interno
-curl -X POST "https://evoapi.sisnova.com.ar/webhook/set/cliente3" \
+curl -X POST "https://evoapi.sisnova.com.ar/webhook/set/wsapi-sisnova" \
   -H "apikey: 9d15c6d04d216cc8becc3721d8199c20" \
   -H "Content-Type: application/json" \
   -d '{
@@ -106,5 +106,5 @@ curl -X POST "https://evoapi.sisnova.com.ar/webhook/set/cliente3" \
 # Obtener configuración de la instancia para verificar que el webhook se guardó correctamente
   curl -s -X GET "https://evoapi.sisnova.com.ar/instance/fetchInstances" \
   -H "apikey: 9d15c6d04d216cc8becc3721d8199c20" \
-  -H "Content-Type: application/json" | jq '.[] | select(.name == "cliente3") | {name, integration, number, businessId, token: (.token[:50] + "...")}'
+  -H "Content-Type: application/json" | jq '.[] | select(.name == "wsapi-sisnova") | {name, integration, number, businessId, token: (.token[:50] + "...")}'
 ```

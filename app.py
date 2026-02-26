@@ -1,6 +1,6 @@
 from loguru import logger
 from logger_config import inicializar_logger, generar_resumen_auditoria
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from flask import Response
 # 🚀 1. Inicializar el logger ANTES que el resto del sistema
 inicializar_logger()
@@ -11,6 +11,7 @@ from tools_hitl import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
 from ddos_protection import ddos_protection
 import sys
+from politica_privacidad import politica_privacidad_html
 from agente import pool, workflow_builder # Importamos el builder, NO la app completa
 from langgraph.checkpoint.postgres import PostgresSaver
 from langchain_core.messages import ToolMessage
@@ -1477,6 +1478,16 @@ def calendar_oauth_callback():
         </html>
         """, 500
 
+@app.route('/politica-privacidad')
+@app.route('/privacy')
+@app.route('/politica-de-privacidad')
+def privacy_policy():
+    logger.info("📄 Política de privacidad solicitada")
+    return render_template_string(politica_privacidad_html)
+
+@app.route('/')
+def home():
+    return "<h1>Bienvenido</h1><p>Política de privacidad disponible en: <a href='/politica-privacidad'>/politica-privacidad</a></p>"
 
 logger.info("✅ App Flask iniciada.")
 
