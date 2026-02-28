@@ -679,6 +679,154 @@ def webhook():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ==================== WEBHOOK DE INSTAGRAM COMMENTS ====================
+@app.route('/webhook/instagram', methods=['GET', 'POST'])
+def webhook_instagram():
+    """Endpoint para recibir webhooks de Instagram (comentarios en publicaciones)
+    
+    GET: Verificación de webhook por parte de Meta
+    POST: Recepción de comentarios de Instagram
+    """
+    
+    if request.method == 'GET':
+        # Verificación de webhook de Meta
+        verify_token = os.getenv('INSTAGRAM_VERIFY_TOKEN', 'instagram_webhook_verify_2026')
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        
+        if mode == 'subscribe' and token == verify_token:
+            logger.info(f"✅ Instagram webhook verificado correctamente")
+            return challenge, 200
+        else:
+            logger.warning(f"⚠️ Verificación fallida: mode={mode}, token={token}")
+            return 'Forbidden', 403
+    
+    elif request.method == 'POST':
+        try:
+            payload = request.json
+            logger.info(f"📸 Instagram webhook recibido: {json.dumps(payload)[:300]}...")
+            
+            # Procesar cada entrada del webhook
+            for entry in payload.get('entry', []):
+                # Los comentarios vienen en el campo 'changes'
+                for change in entry.get('changes', []):
+                    if change.get('field') == 'comments':
+                        value = change.get('value', {})
+                        
+                        # Extraer datos del comentario
+                        comment_id = value.get('id')
+                        comment_text = value.get('text', '')
+                        media_id = value.get('media', {}).get('id')
+                        media_type = value.get('media', {}).get('media_product_type', 'UNKNOWN')
+                        
+                        from_user = value.get('from', {})
+                        user_id = from_user.get('id')
+                        username = from_user.get('username', 'usuario')
+                        
+                        page_id = entry.get('id')  # Instagram Page ID
+                        
+                        logger.info(f"💬 Comentario IG de @{username}: {comment_text[:100]}")
+                        logger.info(f"   Media: {media_type} (ID: {media_id})")
+                        
+                        # Procesar comentario con el agente IA
+                        executor.submit(
+                            procesar_y_responder_instagram,
+                            page_id,
+                            user_id,
+                            username,
+                            comment_id,
+                            comment_text,
+                            media_id,
+                            media_type
+                        )
+            
+            return jsonify({"status": "received"}), 200
+            
+        except Exception as e:
+            logger.error(f"🔴 Error procesando webhook Instagram: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def procesar_y_responder_instagram(page_id, user_id, username, comment_id, comment_text, media_id, media_type):
+    """Procesa un comentario de Instagram y responde usando el agente IA"""
+    try:
+        logger.info(f"🤖 Procesando comentario IG de @{username}: {comment_text[:80]}")
+        
+        # Obtener configuración del negocio
+        business_id = page_id  # Usamos el page_id como business_id
+        info_negocio = ClienteConfig(business_id)
+        ttl_minutos = info_negocio.ttl_sesion_minutos or 60
+        
+        # Crear thread_id único para este usuario en Instagram
+        thread_id = f"{business_id}:ig_{user_id}"
+        
+        # Contexto adicional para el agente
+        contexto_adicional = f"\n[Usuario: @{username} comentó en tu {media_type}]"
+        mensaje_completo = comment_text + contexto_adicional
+        
+        # Procesar con el agente IA
+        respuesta = procesar_mensaje(
+            business_id=business_id,
+            user_id=thread_id,
+            mensaje=mensaje_completo,
+            client_name=username,
+            ttl_minutos=ttl_minutos
+        )
+        
+        if respuesta:
+            # Responder al comentario en Instagram
+            responder_comentario_instagram(comment_id, respuesta)
+            logger.info(f"✅ Respuesta enviada a @{username} en IG")
+        else:
+            logger.warning(f"⚠️ No se obtuvo respuesta del agente para @{username}")
+            
+    except Exception as e:
+        logger.error(f"🔴 Error procesando comentario Instagram de @{username}: {e}")
+
+
+def responder_comentario_instagram(comment_id: str, mensaje: str):
+    """Responde a un comentario de Instagram usando la Graph API de Meta
+    
+    Args:
+        comment_id: ID del comentario a responder
+        mensaje: Texto de la respuesta
+    """
+    try:
+        access_token = os.getenv('INSTAGRAM_ACCESS_TOKEN')
+        if not access_token:
+            logger.error("❌ INSTAGRAM_ACCESS_TOKEN no configurado")
+            return False
+        
+        # URL de la Graph API para responder comentarios
+        url = f"https://graph.facebook.com/v23.0/{comment_id}/replies"
+        
+        # Limitar respuesta a 500 caracteres (límite de Instagram)
+        mensaje_truncado = mensaje[:500]
+        
+        payload = {
+            "message": mensaje_truncado,
+            "access_token": access_token
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(f"📨 Respuesta IG enviada: {result}")
+            return True
+        else:
+            logger.error(f"❌ Error al responder en IG: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"🔴 Error en responder_comentario_instagram: {e}")
+        return False
+
+
+# ==================== FIN WEBHOOK INSTAGRAM ====================
+
+
 # Endpoint para borrar memoria de un usuario específico
 @app.route('/borrar_memoria', methods=['DELETE'])
 def borrar_memoria():
