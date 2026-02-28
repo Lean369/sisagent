@@ -11,6 +11,7 @@ from tools_hitl import decodificar_token_reactivacion
 from langchain_core.runnables.graph import CurveStyle, NodeStyles, MermaidDrawMethod
 from ddos_protection import ddos_protection
 import sys
+from onboarding_coexistence import ONBOARDING_HTML
 from politica_privacidad import politica_privacidad_html
 from agente import pool, workflow_builder # Importamos el builder, NO la app completa
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -23,6 +24,8 @@ import json
 import os
 import base64
 import io
+from time import sleep
+from pydantic import BaseModel
 from evolutionapi.client import EvolutionClient  # del paquete oficial
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
@@ -127,36 +130,127 @@ def enviar_documento_whatsapp(numero_destino: str, documento, nombre_instancia: 
         return {"status": "failed", "error": str(e)}
 
 
-def enviar_boton_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
+def enviar_lista_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
     """Envía un mensaje con botones interactivos a través del cliente de Evolution API.
     Soporta hasta 3 botones de tipo 'reply'.
     """
     logger.debug(f"Enviando mensaje con botón a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
 
     try:
-        # Endpoint correcto para Baileys
-        endpoint = f"message/sendButtons/{nombre_instancia}"
-        
-        # Estructura correcta según Evolution API v2 con Baileys
+        endpoint = f"message/sendText/{nombre_instancia}" # SOLO Whatsapp API 
+        # endpoint = f"message/sendList/{nombre_instancia}" #SOLO Whatsapp API 
+        # endpoint = f"message/sendPoll/{nombre_instancia}" # SOLO baileys
+        # endpoint = f"message/sendButtons/{nombre_instancia}" #SOLO Whatsapp API 
+        # endpoint = f"message/sendMedia/{nombre_instancia}" # Funciona en ambos
+
+                # Estructura para envío de botones tipo "reply" (WhatsApp Cloud API)
+        # Cada botón debe tener: type="reply" + reply: { id, title }
+        import time
         payload = {
+            "number": numero_destino,
+            "text": f"https://sisagent.sisnova.org/", #?v={int(time.time())}",  # ?v= fuerza re-fetch del preview
+            "linkPreview": True,
+            "delay": 1200
+        }
+
+        payload_media = {
+            "number": numero_destino,
+            "mediatype": "image",
+            "mimetype": "image/jpeg",
+            "fileName": "botas.jpeg",
+            "media": "https://sisagent.sisnova.org/static/botas.jpeg",
+            "caption": "https://sisagent.sisnova.org/"
+        }       
+
+        payload_poll = {
+            "number": numero_destino,
+            "name": mensaje,
+            "selectableCount": 1,
+            "values": [
+                "Opción 1",
+                "Opción 2",
+                "Opción 3"
+            ]
+        }
+
+        # Estructura para envío de botones tipo "list" (más visual, recomendado para WhatsApp)
+        payload_list = {
             "number": numero_destino,
             "title": mensaje,
             "description": "Selecciona una opción:",
-            "footer": "Powered by AI",
+            "buttonText": "Ver opciones",
+            "footerText": "Powered by Sisnova",
+            "sections": [
+                {
+                    "title": "Opciones disponibles",
+                    "rows": [
+                        {
+                            "title": "Opción 1",
+                            "description": "Descripción de opción 1",
+                            "rowId": "btn_1"
+                        },
+                        {
+                            "title": "Opción 2",
+                            "description": "Descripción de opción 2",
+                            "rowId": "btn_2"
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        # Estructura para envío de botones tipo "reply" (más simple, pero menos visual)
+        payload_buttons = {
+            "number": numero_destino,
+            "title": mensaje,
+            "description": "Selecciona una opción:",
+            "footerText": "Powered by Sisnova",
             "buttons": [
                 {
                     "type": "reply",
                     "displayText": "Opción 1",
                     "id": "btn_1"
+                },
+                {
+                    "type": "reply",
+                    "displayText": "Opción 2",
+                    "id": "btn_2"
+                },
+                {
+                    "type": "reply",
+                    "displayText": "Opción 3",
+                    "id": "btn_3"
                 }
             ]
         }
     
         response = client.post(endpoint, data=payload)
-        
+        logger.debug(f"Response from Evolution API: {str(response)[:200]}")
+
         if not response:
             logger.error(f"❌ Evolution client returned empty response")
             return {"status": "failed", "error": "Empty response from Evolution API"}
+        # else:
+        #     sleep(0.2)  # Pequeña pausa 0,2 segundos para evitar problemas de orden en la API de Evolution
+        #     buttons_endpoint = f"message/sendButtons/{nombre_instancia}"
+        #     buttons_payload = {
+        #         "number": numero_destino,
+        #         "title": "¿Cómo podemos ayudarte?",
+        #         "buttons": [
+        #             {
+        #                 "type": "reply",
+        #                 "displayText": "🛒 Comprar ahora!",
+        #                 "id": "btn_asesor"
+        #             },
+        #             {
+        #                 "type": "reply",
+        #                 "displayText": " Ver más información",
+        #                 "id": "btn_info"
+        #             }
+        #         ]
+        #     }
+        #     response = client.post(buttons_endpoint, data=buttons_payload)
+        #     logger.debug(f"Response from sending buttons: {str(response)[:200]}")
         
         logger.info(f"✅ Botones enviados correctamente a {numero_destino}")
         logger.debug(f"Sent button message with instance={nombre_instancia} response={str(response)[:200]}")
@@ -193,8 +287,8 @@ def enviar_texto_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = 
         
         logger.debug(f"Sent: with instance={nombre_instancia} response={str(response)[:200]}")
             
-        telefono = numero_destino.split('@')[0] if numero_destino else "unknown"
-        msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {str(mensaje)[:100]}..."
+        client_id = numero_destino.split('@')[0] if numero_destino else "unknown"
+        msg = f"[SND -> EVO] 📤 ID: {client_id} - MSG: {str(mensaje)[:100]}..."
         generar_resumen_auditoria(nombre_instancia, msg)
 
         # Verificar si la respuesta indica éxito
@@ -353,7 +447,7 @@ def worker_procesar_imagen(business_id, user_id, msg_id, mensaje, push_name):
             analisis = analizar_imagen_con_ai(image_buffer, thread_id, caption)
             
             if analisis:
-                msg = f"[RCV <- EVO] 🖼️ TEL: {telefono} - IMG: {caption[:50] if caption else 'sin texto'}"
+                msg = f"[RCV <- EVO] 🖼️ ID: {telefono} - IMG: {caption[:50] if caption else 'sin texto'}"
                 generar_resumen_auditoria(business_id, msg)
                 
                 # Enviar el análisis como respuesta
@@ -382,6 +476,12 @@ def worker_procesar_imagen(business_id, user_id, msg_id, mensaje, push_name):
             pass  # Evitar errores en cascada
 
 def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, ttl_minutos):
+    """Procesa audios enviados por Evolution API - WhatsApp SOLO Baileys:
+    1. Descarga el audio desde Evolution API
+    2. Decodifica el audio de base64 a bytes
+    3. Transcribe el audio a texto
+    4. Procesa el texto con IA
+    """
     try:
         logger.debug(f"[AUDIO] Procesando audio para {user_id}, instance={business_id}")
         telefono = user_id.split("@")[0]    
@@ -425,7 +525,7 @@ def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, ttl_
             
             if texto_transcrito:
                 # logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50].replace('\n', ' ')}")
-                msg = f"[RCV <- EVO] 🔊 TEL: {telefono} - MSG: {texto_transcrito[:100].replace('\n', ' ')}"
+                msg = f"[RCV <- EVO] 🔊 ID: {telefono} - MSG: {texto_transcrito[:100].replace('\n', ' ')}"
                 generar_resumen_auditoria(business_id, msg)
                 # 2. Reutilizamos el worker de texto existente para procesar con IA
                 procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, ttl_minutos)
@@ -449,7 +549,7 @@ def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, ttl_
             pass  # Evitar errores en cascada
 
 
-def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, telefono, business_id):
+def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, client_id, business_id):
     """
     Envía la respuesta generada por LangGraph de vuelta a la conversación en Chatwoot.
     """
@@ -474,14 +574,92 @@ def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, telefo
         response.raise_for_status()
         logger.info(f"✅ Respuesta enviada a Chatwoot (Conv ID: {conversation_id})")
 
-        msg = f"[SND -> EVO] 📤 TEL: {telefono} - MSG: {texto_respuesta[:100]}..."
+        msg = f"[SND -> CWT] 📤 ID: {client_id} - MSG: {texto_respuesta[:100]}..."
         generar_resumen_auditoria(business_id, msg)
 
     except requests.exceptions.RequestException as e:
         logger.error(f"🔴 Error enviando a Chatwoot: {e}")
 
 
-def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", phone_number: str = "", ttl_minutos: int = 60):
+def worker_procesar_audio_chatwoot(business_id, user_id, audio_url, conversation_id, account_id, client_name, client_id, ttl_minutos):
+    """
+    Procesa una nota de voz recibida vía Chatwoot:
+    1. Descarga el audio desde la URL de active_storage de Chatwoot (requiere token)
+    2. Transcribe el audio a texto con Whisper
+    3. Procesa el texto con IA y responde en Chatwoot
+    """
+    try:
+        logger.debug(f"[AUDIO-CWT] Procesando audio para {user_id}, conv={conversation_id}")
+
+        CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://sischat.sisnova.com.ar/")
+        CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
+
+        # Descargar el audio desde Chatwoot active_storage (autenticado con token)
+        headers = {"api_access_token": CHATWOOT_API_TOKEN}
+        logger.debug(f"[AUDIO-CWT] Descargando audio desde: {audio_url[:80]}...")
+
+        resp = requests.get(audio_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        audio_buffer = resp.content
+        logger.info(f"[AUDIO-CWT] Audio descargado: {len(audio_buffer)} bytes")
+
+        # Detectar formato del audio por magic bytes
+        def detectar_formato_audio(buf: bytes) -> str:
+            if buf[:4] == b'OggS':
+                return 'ogg'
+            if len(buf) >= 8 and buf[4:8] == b'ftyp':
+                return 'mp4'
+            if buf[:3] == b'ID3' or (len(buf) >= 2 and buf[0] == 0xFF and buf[1] & 0xE0 == 0xE0):
+                return 'mp3'
+            if buf[:4] == b'RIFF' and buf[8:12] == b'WAVE':
+                return 'wav'
+            # Fallback: intentar inferir desde Content-Type
+            ct = resp.headers.get('Content-Type', '')
+            if 'mp4' in ct or 'aac' in ct or 'm4a' in ct:
+                return 'mp4'
+            if 'mpeg' in ct or 'mp3' in ct:
+                return 'mp3'
+            if 'ogg' in ct:
+                return 'ogg'
+            if 'wav' in ct:
+                return 'wav'
+            return 'ogg'  # default legacy
+
+        audio_format = detectar_formato_audio(audio_buffer)
+        logger.debug(f"[AUDIO-CWT] Formato detectado: {audio_format} (Content-Type: {resp.headers.get('Content-Type', 'desconocido')})")
+
+        # Transcribir con Whisper
+        thread_id = f"{business_id}:{user_id}"
+        texto_transcrito = transcribir_audio(audio_buffer, thread_id=thread_id, audio_format=audio_format)
+
+        if texto_transcrito:
+            msg = f"[RCV <- CWT] 🔊 ID: {client_id} - MSG: {texto_transcrito[:100].replace(chr(10), ' ')}"
+            generar_resumen_auditoria(business_id, msg)
+            # Procesar con IA y responder en Chatwoot
+            procesar_y_responder_chatwoot(
+                business_id, user_id, texto_transcrito,
+                conversation_id, account_id, client_name, client_id, ttl_minutos
+            )
+        else:
+            msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
+            enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"❌ [AUDIO-CWT] Error HTTP descargando audio: {e}")
+        msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
+        enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
+    except Exception as e:
+        logger.error(f"🔴 [AUDIO-CWT] Error procesando audio: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
+            enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
+        except:
+            pass
+
+
+def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", client_id: str = "", ttl_minutos: int = 60):
     """Función que corre en background para procesar mensajes de Chatwoot y responder"""
 
     try:       
@@ -493,7 +671,7 @@ def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id
         # 2. Envío de respuesta
         if respuesta_ia:
             logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
-            enviar_mensaje_chatwoot(account_id, conversation_id, respuesta_ia, phone_number, business_id)
+            enviar_mensaje_chatwoot(account_id, conversation_id, respuesta_ia, client_id, business_id)
         else:
             logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
 
@@ -506,7 +684,7 @@ def webhook_chatwoot():
     try:
         data = request.json
         #logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:200]}")
-        logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:100]}...")
+        logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)}")
 
         # 1. Validar que el evento sea la creación de un mensaje
         if data.get('event') != 'message_created':
@@ -531,34 +709,117 @@ def webhook_chatwoot():
         mensaje = data.get('content')
         account_id = data.get('account', {}).get('id')
         business_id = data.get('account', {}).get('name')
-        inbox_id = data.get('inbox', {}).get('id')
-        phone_number = str(data.get('sender', {}).get('phone_number'))
-        client_name = data.get('sender', {}).get('name') or phone_number or "unknown"
+        inbox_id = data.get('inbox', {}).get('id')    
+        client_name = data.get('sender', {}).get('name') 
         channel = data.get('conversation', {}).get('channel')
-        
-        msg = f"[RCV <- EVO] 📨 TEL: {phone_number} - MSG: {mensaje[:100]}..."
-        generar_resumen_auditoria(business_id, msg)
+        user_id = ""
+        msg = ""
+        client_id = ""
 
-        # 4. Generar el user_id para LangGraph usando el conversation_id
-        user_id = f"{phone_number.replace('+', '')}@{channel}@{account_id}@{conversation_id}" if phone_number else f"conv_{conversation_id}"
-        logger.debug(f"Extracted data - business_id: {business_id}, user_id: {user_id}, conversation_id: {conversation_id}, account_id: {account_id}")
+        # Detectar si es una nota de voz (content=null + attachment con file_type='audio')
+        attachments = data.get('attachments') or []
+        audio_attachment    = next((a for a in attachments if a.get('file_type') == 'audio'), None)
+        # Nota: WhatsApp Business API envía tanto fotos como stickers como file_type="image"
+        # (incluyendo .webp para fotos reales). No es posible distinguirlos de forma confiable.
+        image_attachment    = next((a for a in attachments if a.get('file_type') == 'image'), None)
+        document_attachment = next((a for a in attachments if a.get('file_type') == 'file'), None)
+        contact_attachments = [a for a in attachments if a.get('file_type') == 'contact']
+        location_attachment = next((a for a in attachments if a.get('file_type') == 'location'), None)
+
+        # Determinar etiqueta del tipo de contenido para logs
+        tipo_contenido = (
+            '[audio]'      if audio_attachment else
+            '[imagen]'     if image_attachment else
+            '[documento]'  if document_attachment else
+            '[contacto]'   if contact_attachments else
+            '[ubicación]'  if location_attachment else
+            (mensaje or '[desconocido]')
+        )
+
+        logger.debug(f"Extracted data - business_id: {business_id}, channel: {channel}, conversation_id: {conversation_id}, account_id: {account_id}, tipo={tipo_contenido}")
+        
+        # 4. Generar el user_id para LangGraph
+        if channel == "Channel::Instagram":
+            client_id = data.get('sender', {}).get('additional_attributes', {}).get('social_instagram_user_name')
+            user_id = f"{client_id}@{channel}@{account_id}@{conversation_id}" if client_id else f"conv_{conversation_id}"
+            msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
+        
+        elif channel == "Channel::Whatsapp" or channel == "Channel::Api":
+            client_id = str(data.get('sender', {}).get('phone_number'))
+            user_id = f"{client_id.replace('+', '')}@{channel}@{account_id}@{conversation_id}" if client_id else f"conv_{conversation_id}"
+            msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
+        
+        generar_resumen_auditoria(business_id, msg)
 
         # 5. Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
         info_negocio = ClienteConfig(business_id)
         ttl_minutos = info_negocio.ttl_sesion_minutos or 60
+        audio_transcripcion = info_negocio.audio_transcripcion or True
 
-        # 6. Delegar al ThreadPool (igual que hacías con WhatsApp)
-        executor.submit(
-            procesar_y_responder_chatwoot, 
-            business_id, 
-            user_id, 
-            mensaje, 
-            conversation_id, 
-            account_id,
-            client_name,
-            phone_number,
-            ttl_minutos
-        )
+        # 6. Delegar al ThreadPool según tipo de contenido
+        if audio_attachment and not mensaje:
+            # [AUDIO] Nota de voz
+            if audio_transcripcion:
+                logger.info(f"🔊 [CWT] Procesando nota de voz de {user_id}. Transcribiendo con IA...")
+                executor.submit(
+                    worker_procesar_audio_chatwoot,
+                    business_id, user_id,
+                    audio_attachment.get('data_url'),
+                    conversation_id, account_id,
+                    client_name, client_id, ttl_minutos
+                )
+            else:
+                logger.info(f"🔊 [CWT] Nota de voz recibida de {user_id}, transcripción deshabilitada.")
+                msg_resp = "Gracias por tu nota de voz. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+                executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+
+        elif image_attachment and not mensaje:
+            # [IMAGEN] Sin caption → pedir descripción
+            logger.info(f"🖼️ [CWT] Imagen recibida de {user_id} (sin texto)")
+            msg_resp = "Gracias por la imagen. Para poder ayudarte mejor, ¿podrías describir qué necesitas? 📝"
+            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+
+        elif document_attachment and not mensaje:
+            # [DOCUMENTO] Sin texto → pedir descripción
+            logger.info(f"📄 [CWT] Documento recibido de {user_id} (sin texto)")
+            msg_resp = "Gracias por el documento. Para poder ayudarte mejor, ¿podrías indicar qué necesitas con él? 📝"
+            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+
+        elif contact_attachments:
+            # [CONTACTO] Tarjeta de contacto compartida
+            contact_name = mensaje or '(sin nombre)'
+            phones = [a.get('fallback_title', '') for a in contact_attachments if a.get('fallback_title')]
+            phones_str = ', '.join(phones) if phones else '(sin teléfono)'
+            logger.info(f"👤 [CWT] Contacto compartido por {user_id} → Nombre: {contact_name} | Teléfonos: {phones_str}")
+            msg_resp = f"Recibí el contacto de *{contact_name}* ({phones_str}). ¿En qué puedo ayudarte con respecto a esta persona? 📋"
+            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+
+        elif location_attachment:
+            # [UBICACIÓN] Coordenadas geográficas compartidas
+            lat  = location_attachment.get('coordinates_lat')
+            long = location_attachment.get('coordinates_long')
+            title = location_attachment.get('fallback_title') or ''
+            maps_url = f"https://www.google.com/maps?q={lat},{long}"
+            loc_info = f"lat={lat}, long={long}" + (f", título='{title}'" if title else '')
+            logger.info(f"📍 [CWT] Ubicación recibida de {user_id} → {loc_info} | Maps: {maps_url}")
+            msg_resp = f"Recibí tu ubicación 📍" + (f" (*{title}*)" if title else '') + f".\nPuedes verla aquí: {maps_url}\n¿En qué puedo ayudarte?"
+            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+
+        elif mensaje:
+            # [TEXTO] Mensaje de texto normal (puede venir con o sin attachment adjunto)
+            executor.submit(
+                procesar_y_responder_chatwoot,
+                business_id,
+                user_id,
+                mensaje,
+                conversation_id,
+                account_id,
+                client_name,
+                client_id,
+                ttl_minutos
+            )
+        else:
+            logger.warning(f"⚠️ [CWT] Mensaje sin contenido reconocido para conv={conversation_id}, ignorando.")
 
         return jsonify({"status": "recibido"}), 200
 
@@ -574,7 +835,7 @@ def webhook():
     try:
         msg_id = "-"
         payload = request.json
-        logger.info(f"📨 Received webhook payload: {json.dumps(payload)[:100]}...")
+        logger.info(f"📨 Received webhook payload: {json.dumps(payload)}...")
         
         # Extraer información del mensaje de Evolution API
         if payload.get('event') == 'messages.upsert':
@@ -595,7 +856,7 @@ def webhook():
             from_me = mensaje_data.get('key', {}).get('fromMe', False)
             msg_id = mensaje_data.get('key', {}).get('id', '-')
             push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
-            telefono = user_id.split('@')[0] if user_id else "unknown"
+            client_id = user_id.split('@')[0] if user_id else "unknown" #telefono
 
             # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
             business_id = payload.get('instance') or None
@@ -618,8 +879,9 @@ def webhook():
 
             #[TEXTO] Procesar mensaje de texto normal
             if mensaje and user_id and not from_me:          
-                msg = f"[RCV <- EVO] 📨 TEL: {telefono} - MSG: {mensaje[:100]}..."
+                msg = f"[RCV <- EVO] 📨 ID: {client_id} - MSG: {mensaje[:100]}..."
                 generar_resumen_auditoria(business_id, msg)
+                #enviar_lista_whatsapp(user_id, "Gracias por tu mensaje. Estoy procesando tu consulta... ⏳", business_id)
                 executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, ttl_minutos)    
             else:
                 logger.debug("No es mensaje de texto o es de 'from_me', saltando procesamiento de texto.")
@@ -659,10 +921,10 @@ def webhook():
                 text = msg["message"]["conversation"]
                 from_me = msg["key"].get("fromMe", False)
                 push_name = msg.get('pushName', '') or msg.get('verifiedBizName', '')
-                telefono = user_id.split('@')[0] if user_id else "unknown"
+                client_id = user_id.split('@')[0] if user_id else "unknown"
                 
                 if text and user_id and not from_me:
-                    msg = f"[RCV <- EVO] 📄 TEL: {telefono} - MSG: {text[:100]}..."
+                    msg = f"[RCV <- EVO] 📄 ID: {client_id} - MSG: {text[:100]}..."
                     generar_resumen_auditoria(business_id, msg)
                     executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, ttl_minutos)  
                 else:
@@ -675,7 +937,7 @@ def webhook():
         return jsonify({"status": "accepted"}), 200
     
     except Exception as e:
-        logger.error(f"🔴 Error en webhook: {e}")
+        logger.error(f"🔴 Error en webhook /webhook/evoapi: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -904,8 +1166,8 @@ def ejecutar_reactivar_bot(business_id: str, user_id: str) -> bool:
                 as_node="chatbot" # O el nodo que corresponda
             )
         
-        telefono = thread_id.split(':')[1].split('@')[0] if thread_id else "unknown"
-        msg = f"[---TOOL---] 🔧 TEL: {telefono} - MSG: ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO"
+        client_id = thread_id.split(':')[1].split('@')[0] if thread_id else "unknown"
+        msg = f"[---TOOL---] 🔧 ID: {client_id} - MSG: ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO"
         generar_resumen_auditoria(business_id, msg)
         logger.info(f"Bot reactivado exitosamente para {thread_id}")
         return True
@@ -913,7 +1175,6 @@ def ejecutar_reactivar_bot(business_id: str, user_id: str) -> bool:
     except Exception as e:
         logger.error(f"🔴 Error ejecutando reactivación del bot: {e}")
         return False
-
 
 @app.route('/reactivar_bot_web', methods=['GET'])
 def reactivar_bot_web():
@@ -959,7 +1220,7 @@ def reactivar_bot_web():
             logger.warning(f"🤖 CRAWLER DETECTADO: {user_agent[:150]} - Bloqueando reactivación automática")
             
             # URL de la imagen para el preview (puede ser personalizada por negocio)
-            preview_image_url = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/static/logo-sisnova3.png"
+            preview_image_url = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/static/og-preview.png"
                    
             return f"""
             <html>
@@ -968,13 +1229,14 @@ def reactivar_bot_web():
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     
                     <!-- Open Graph / WhatsApp Preview -->
+                    <meta property="fb:app_id" content="{os.getenv('META_APP_ID', '')}" />
                     <meta property="og:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
                     <meta property="og:description" content="Toca aquí para reactivar la conversación con el bot" />
                     <meta property="og:type" content="website" />
                     <meta property="og:image" content="{preview_image_url}" />
                     <meta property="og:image:type" content="image/png" />
-                    <meta property="og:image:width" content="667" />
-                    <meta property="og:image:height" content="200" />
+                    <meta property="og:image:width" content="1200" />
+                    <meta property="og:image:height" content="630" />
                     <meta property="og:image:alt" content="Reactivar Bot" />
                     
                     <!-- Twitter Card (por si acaso) -->
@@ -1635,7 +1897,232 @@ def privacy_policy():
 
 @app.route('/')
 def home():
-    return "<h1>Bienvenido</h1><p>Política de privacidad disponible en: <a href='/politica-privacidad'>/politica-privacidad</a></p>"
+    base_url = os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SisAgent _ Asistente Virtual</title>
+  <!-- Open Graph / WhatsApp link preview -->
+  <meta property="fb:app_id"       content="{os.getenv('META_APP_ID', '')}" />
+  <meta property="og:type"        content="website" />
+  <meta property="og:url"         content="{base_url}/" />
+  <meta property="og:title"       content="SisAgent Asistente Virtual" />
+  <meta property="og:description" content="Descubrí la nueva forma de interactuar con tu negocio a través de WhatsApp" />
+  <meta property="og:image"        content="{base_url}/static/og-preview.png" />
+  <meta property="og:image:type"   content="image/png" />
+  <meta property="og:image:width"  content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt"    content="SisAgent" />
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:60px;">
+  <h1>Bienvenido a SisAgent</h1>
+  <p>Política de privacidad: <a href='/politica-privacidad'>/politica-privacidad</a></p>
+</body>
+</html>"""
+
+# Configuraciones (poné en .env en producción)
+META_APP_ID = os.getenv("META_APP_ID", "TU_APP_ID")  # ID de tu app en Meta for Developers
+META_APP_SECRET = os.getenv("META_APP_SECRET", "TU_APP_SECRET")  # Si necesitás intercambiar code por token
+REDIRECT_URI = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/callback/whatsapp"  # Debe coincidir con Meta
+
+class EvolutionInstanceCreate(BaseModel):
+    instanceName: str
+    integration: str = "WHATSAPP-BUSINESS"
+    token: str  # Permanent Access Token
+    number: str  # Phone Number ID (ej: "123456789012345")
+    qrcode: bool = False  # No QR para Cloud API
+
+@app.route("/callback/whatsapp", methods=['GET'])
+def whatsapp_callback():
+    code = request.args.get('code')
+    waba_id = request.args.get('waba_id')
+    phone_number_id = request.args.get('phone_number_id')
+    error = request.args.get('error')
+    error_description = request.args.get('error_description')
+
+    if error:
+        logger.error(f"Error en Embedded Signup: {error} - {error_description}")
+        return f"<h1>Error: {error_description}</h1><p>Contacta soporte.</p>"
+
+    # Caso 1: Embedded Signup envía datos directamente via params (común en v4+ con helper)
+    if phone_number_id and waba_id:
+        logger.info(f"Recibidos directamente: Phone ID={phone_number_id}, WABA ID={waba_id}")
+        import asyncio
+        asyncio.run(create_evolution_instance(phone_number_id, waba_id))
+        return "<h1>¡Conexión exitosa!</h1><p>Tu WhatsApp está siendo configurado en Evolution. Redirigiendo...</p>"
+
+    # Caso 2: Viene 'code' → intercambiar por token y obtener datos (OAuth flow manual)
+    if code:
+        try:
+            token_url = "https://graph.facebook.com/v21.0/oauth/access_token"
+            params = {
+                "client_id": META_APP_ID,
+                "client_secret": META_APP_SECRET,
+                "redirect_uri": REDIRECT_URI,
+                "code": code
+            }
+            resp = requests.get(token_url, params=params)
+            resp.raise_for_status()
+            token_data = resp.json()
+            access_token = token_data.get("access_token")
+
+            graph_url = f"https://graph.facebook.com/v21.0/me?fields=whatsapp_business_accounts{{phone_numbers{{id,name}}}}&access_token={access_token}"
+            graph_resp = requests.get(graph_url)
+            graph_resp.raise_for_status()
+            data = graph_resp.json()
+
+            waba = data.get("whatsapp_business_accounts", {}).get("data", [{}])[0]
+            phone = waba.get("phone_numbers", {}).get("data", [{}])[0]
+            phone_number_id = phone.get("id")
+            waba_id = waba.get("id")
+
+            if not phone_number_id:
+                raise ValueError("No se encontró Phone Number ID")
+
+            logger.info(f"Obtenido via token: Phone ID={phone_number_id}, WABA ID={waba_id}")
+
+            import asyncio
+            asyncio.run(create_evolution_instance(phone_number_id, waba_id, access_token))
+            return "<h1>¡Éxito!</h1><p>Instancia creada en Evolution. Podés cerrar esta ventana.</p>"
+
+        except Exception as e:
+            logger.exception("Error procesando code")
+            return jsonify({"error": str(e)}), 500
+
+    return "<h1>Callback recibido, pero faltan parámetros. Intenta de nuevo.</h1>"
+
+
+@app.route("/onboard-whatsapp", methods=['GET'])
+def onboard_page():
+    logger.info("🔗 Página de onboarding solicitada")
+    return ONBOARDING_HTML
+
+
+# Endpoint principal de onboarding: recibe code + phone_number_id + waba_id desde el frontend
+# El frontend los obtiene: code via FB.login() callback, phone_number_id/waba_id via postMessage
+@app.route("/api/onboard-whatsapp", methods=['POST'])
+def receive_embedded_data():
+    data = request.json or {}
+    code = data.get('code')
+    phone_number_id = data.get('phone_number_id')
+    waba_id = data.get('waba_id')
+    business_id = data.get('business_id')
+
+    if not code or not phone_number_id or not waba_id:
+        return jsonify({"status": "error", "error": "Faltan datos requeridos (code, phone_number_id, waba_id)"}), 400
+
+    logger.info(f"📨 Onboarding iniciado: Phone ID={phone_number_id}, WABA ID={waba_id}")
+
+    try:
+        # Paso 1: Intercambiar el código de autorización por un access token
+        # El code tiene TTL de 30s, hacerlo de inmediato
+        token_resp = requests.get(
+            f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/oauth/access_token",
+            params={
+                "client_id": META_APP_ID,
+                "client_secret": META_APP_SECRET,
+                "code": code
+                # Nota: NO incluir redirect_uri para el flow iniciado por FB.login()
+            },
+            timeout=15
+        )
+        token_resp.raise_for_status()
+        token_data = token_resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError(f"No se obtuvo access_token: {token_data}")
+        logger.info(f"✅ Token intercambiado para phone {phone_number_id}")
+
+        graph_headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Paso 2: Registrar el número de teléfono para usar Cloud API
+        # Esto es obligatorio para que el número pueda enviar/recibir mensajes via Cloud API
+        register_resp = requests.post(
+            f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/{phone_number_id}/register",
+            headers=graph_headers,
+            json={"messaging_product": "whatsapp", "pin": "000000"},
+            timeout=15
+        )
+        if register_resp.status_code not in (200, 201):
+            logger.warning(f"⚠️ Registro de teléfono respondió {register_resp.status_code}: {register_resp.text}")
+        else:
+            logger.info(f"✅ Número {phone_number_id} registrado en Cloud API")
+
+        # Paso 3: Suscribir la app a los webhooks del WABA del cliente
+        # Necesario para recibir mensajes entrantes en nuestro webhook
+        subscribe_resp = requests.post(
+            f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/{waba_id}/subscribed_apps",
+            headers=graph_headers,
+            timeout=15
+        )
+        if subscribe_resp.status_code not in (200, 201):
+            logger.warning(f"⚠️ Suscripción webhooks respondió {subscribe_resp.status_code}: {subscribe_resp.text}")
+        else:
+            logger.info(f"✅ App suscrita a webhooks del WABA {waba_id}")
+
+        # Paso 4: Crear instancia en Evolution API con los datos del cliente
+        import asyncio
+        asyncio.run(create_evolution_instance(phone_number_id, waba_id, access_token))
+
+        return jsonify({
+            "status": "ok",
+            "message": "WhatsApp onboardeado exitosamente",
+            "phone_number_id": phone_number_id,
+            "waba_id": waba_id
+        })
+
+    except requests.HTTPError as e:
+        logger.exception(f"HTTP error en onboarding: {e.response.text if e.response else e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+    except Exception as e:
+        logger.exception("Error en onboarding completo")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+async def create_evolution_instance(phone_number_id: str, waba_id: str, access_token: str = None):
+    """
+    Crea instancia en Evolution API con WHATSAPP-BUSINESS.
+    Usa el permanent token (generado antes o aquí via System User).
+    """
+    # En producción: genera o usa un permanent token por cliente (mejor práctica)
+    # Por simplicidad, asumimos que usás un token permanente de System User con acceso al WABA
+    permanent_token = access_token or "TU_PERMANENT_TOKEN_CON_PERMISOS_AL_WABA_DEL_CLIENTE"
+
+    payload = {
+        "instanceName": f"cliente-{phone_number_id[-6:]}",  # Nombre único
+        "integration": "WHATSAPP-BUSINESS",
+        "token": permanent_token,
+        "number": phone_number_id,  # ¡Este es el Phone Number ID!
+        "qrcode": False,            # No QR para Cloud API
+        "webhook": {
+            "url": f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/webhook/evoapi",
+            "enabled": True,
+            "events": ["MESSAGES_UPSERT"]
+            }
+    }
+
+    headers = {
+        "apikey": EVOLUTION_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(
+                f"{EVOLUTION_API_URL}/instance/create",
+                json=payload,
+                headers=headers,
+                timeout=30.0
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info(f"Instancia creada en Evolution: {data}")
+            # Aquí podés guardar en tu DB: cliente → instanceName, instanceKey, etc.
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error creando instancia: {e.response.text}")
+            raise
 
 logger.info("✅ App Flask iniciada.")
 

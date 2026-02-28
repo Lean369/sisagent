@@ -1,3 +1,4 @@
+## Mensaje de texto desde WhatsApp - Evolution - Chatwoot
 {
   "account": { "id": 1, "name": "cliente1" },
   "additional_attributes": {},
@@ -114,5 +115,439 @@
     "blocked": false
   },
   "source_id": "WAID:3EB064FD5D5B47BC22ADB2",
+  "event": "message_created"
+}
+
+
+## Mensaje de texto desde Instagram - Chatwoot
+
+{
+  "account": { "id": 1, "name": "cliente1" },
+  "additional_attributes": {},
+  "content_attributes": { "in_reply_to_external_id": null },
+  "content_type": "text",
+  "content": "A que se dedican?",
+  "conversation": {
+    "additional_attributes": {},
+    "can_reply": true,
+    "channel": "Channel::Instagram",
+    "contact_inbox": {
+      "id": 62,
+      "contact_id": 30,
+      "inbox_id": 6,
+      "source_id": "2978593885678283",
+      "created_at": "2026-02-28T16:59:06.383Z",
+      "updated_at": "2026-02-28T16:59:06.383Z",
+      "hmac_verified": false,
+      "pubsub_token": "qbF6RoxfCPnjeiAfpo53bMD9"
+    },
+    "id": 16,
+    "inbox_id": 6,
+    "messages": [
+      {
+        "id": 778,
+        "content": "A que se dedican?",
+        "account_id": 1,
+        "inbox_id": 6,
+        "conversation_id": 16,
+        "message_type": 0,
+        "created_at": 1772298143,
+        "updated_at": "2026-02-28T17:02:23.887Z",
+        "private": false,
+        "status": "sent",
+        "source_id": "aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjE3ODQxNDc4ODU0OTgwNTAyOjM0MDI4MjM2Njg0MTcxMDMwMTI0NDI2MDA1OTYyNTM3MzM1MTUzNTozMjY5MzEzMDI1ODQ1OTg1ODgxMTIxNjczMDQ3NzU1OTgwOAZDZD",
+        "content_type": "text",
+        "content_attributes": { "in_reply_to_external_id": null },
+        "sender_type": "Contact",
+        "sender_id": 30,
+        "external_source_ids": {},
+        "additional_attributes": {},
+        "processed_message_content": "A que se dedican?",
+        "sentiment": {},
+        "conversation": {
+          "assignee_id": null,
+          "unread_count": 1,
+          "last_activity_at": 1772298143,
+          "contact_inbox": { "source_id": "2978593885678283" }
+        },
+        "sender": {
+          "additional_attributes": {
+            "social_profiles": { "instagram": "lean396" },
+            "social_instagram_user_name": "lean396",
+            "social_instagram_follower_count": 205,
+            "social_instagram_is_verified_user": false,
+            "social_instagram_is_business_follow_user": false,
+            "social_instagram_is_user_follow_business": false
+          },
+          "custom_attributes": {},
+          "email": null,
+          "id": 30,
+          "identifier": null,
+          "name": "Leandro Martin",
+          "phone_number": null,
+          "thumbnail": "https://sischat.sisnova.com.ar/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBMdz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--671fd1c0a4a36409f090aa945355d97563d4e33f/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaDdCem9MWm05eWJXRjBTU0lJYW5CbkJqb0dSVlE2RTNKbGMybDZaVjkwYjE5bWFXeHNXd2RwQWZvdyIsImV4cCI6bnVsbCwicHVyIjoidmFyaWF0aW9uIn19--05244461011ed2e9066a001d2e33e052891e16d8/295746180_477118697101137_5346309003840489477_n.jpg",
+          "blocked": false,
+          "type": "contact"
+        }
+      }
+    ],
+    "labels": [],
+    "meta": {
+      "sender": {
+        "additional_attributes": {
+          "social_profiles": { "instagram": "lean396" },
+          "social_instagram_user_name": "lean396",
+          "social_instagram_follower_count": 205,
+          "social_instagram_is_verified_user": false,
+          "social_instagram_is_business_follow_user": false,
+          "social_instagram_is_user_follow_business": false
+        },
+        "custom_attributes": {},
+        "email": null,
+        "id": 30,
+        "identifier": null,
+        "name": "Leandro Martin",
+        "phone_number": null,
+        "thumbnail": "https://sischat.sisnova.com.ar/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBMdz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--671fd1c0a4a36409f090aa945355d97563d4e33f/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaDdCem9MWm05eWJXRjBTU0lJYW5CbkJqb0dSVlE2RTNKbGMybDZaVjkwYjE5bWFXeHNXd2RwQWZvdyIsImV4cCI6bnVsbCwicHVyIjoidmFyaWF0aW9uIn19--05244461011ed2e9066a001d2e33e052891e16d8/295746180_477118697101137_5346309003840489477_n.jpg",
+        "blocked": false,
+        "type": "contact"
+      },
+      "assignee": null,
+      "team": null,
+      "hmac_verified": false
+    },
+    "status": "pending",
+    "custom_attributes": {},
+    "snoozed_until": null,
+    "unread_count": 1,
+    "first_reply_created_at": "2026-02-28T16:59:07.983Z",
+    "priority": null,
+    "waiting_since": 0,
+    "agent_last_seen_at": 1772298018,
+    "contact_last_seen_at": 0,
+    "last_activity_at": 1772298143,
+    "timestamp": 1772298143,
+    "created_at": 1772297946,
+    "updated_at": 1772298143.8953576
+  },
+  "created_at": "2026-02-28T17:02:23.887Z",
+  "id": 778,
+  "inbox": { "id": 6, "name": "sisnova.tech" },
+  "message_type": "incoming",
+  "private": false,
+  "sender": {
+    "account": { "id": 1, "name": "cliente1" },
+    "additional_attributes": {
+      "social_profiles": { "instagram": "lean396" },
+      "social_instagram_user_name": "lean396",
+      "social_instagram_follower_count": 205,
+      "social_instagram_is_verified_user": false,
+      "social_instagram_is_business_follow_user": false,
+      "social_instagram_is_user_follow_business": false
+    },
+    "avatar": "https://sischat.sisnova.com.ar/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBMdz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--671fd1c0a4a36409f090aa945355d97563d4e33f/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaDdCem9MWm05eWJXRjBTU0lJYW5CbkJqb0dSVlE2RTNKbGMybDZaVjkwYjE5bWFXeHNXd2RwQWZvdyIsImV4cCI6bnVsbCwicHVyIjoidmFyaWF0aW9uIn19--05244461011ed2e9066a001d2e33e052891e16d8/295746180_477118697101137_5346309003840489477_n.jpg",
+    "custom_attributes": {},
+    "email": null,
+    "id": 30,
+    "identifier": null,
+    "name": "Leandro Martin",
+    "phone_number": null,
+    "thumbnail": "https://sischat.sisnova.com.ar/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBMdz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--671fd1c0a4a36409f090aa945355d97563d4e33f/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaDdCem9MWm05eWJXRjBTU0lJYW5CbkJqb0dSVlE2RTNKbGMybDZaVjkwYjE5bWFXeHNXd2RwQWZvdyIsImV4cCI6bnVsbCwicHVyIjoidmFyaWF0aW9uIn19--05244461011ed2e9066a001d2e33e052891e16d8/295746180_477118697101137_5346309003840489477_n.jpg",
+    "blocked": false
+  },
+  "source_id": "aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjE3ODQxNDc4ODU0OTgwNTAyOjM0MDI4MjM2Njg0MTcxMDMwMTI0NDI2MDA1OTYyNTM3MzM1MTUzNTozMjY5MzEzMDI1ODQ1OTg1ODgxMTIxNjczMDQ3NzU1OTgwOAZDZD",
+  "event": "message_created"
+}
+
+## Ejemplo de nota de voz desde WhatsApp business API 
+
+{
+  "account": { "id": 1, "name": "cliente1" },
+  "additional_attributes": {},
+  "content_attributes": {},
+  "content_type": "text",
+  "content": null,
+  "conversation": {
+    "additional_attributes": {},
+    "can_reply": true,
+    "channel": "Channel::Whatsapp",
+    "contact_inbox": {
+      "id": 64,
+      "contact_id": 31,
+      "inbox_id": 7,
+      "source_id": "5491131376731",
+      "created_at": "2026-02-28T19:40:52.762Z",
+      "updated_at": "2026-02-28T19:40:52.762Z",
+      "hmac_verified": false,
+      "pubsub_token": "yvFgzLVkFNgMPj6onpLzpDCU"
+    },
+    "id": 18,
+    "inbox_id": 7,
+    "messages": [
+      {
+        "id": 821,
+        "content": null,
+        "account_id": 1,
+        "inbox_id": 7,
+        "conversation_id": 18,
+        "message_type": 0,
+        "created_at": 1772307997,
+        "updated_at": "2026-02-28T19:46:37.046Z",
+        "private": false,
+        "status": "sent",
+        "source_id": "wamid.HBgNNTQ5MTEzMTM3NjczMRUCABIYIEFDQTk1NzcyQjg1MEFBRTUzNTI5NTRDQ0JDMUJDQzlBAA==",
+        "content_type": "text",
+        "content_attributes": {},
+        "sender_type": "Contact",
+        "sender_id": 31,
+        "external_source_ids": {},
+        "additional_attributes": {},
+        "processed_message_content": null,
+        "sentiment": {},
+        "conversation": {
+          "assignee_id": null,
+          "unread_count": 1,
+          "last_activity_at": 1772307997,
+          "contact_inbox": { "source_id": "5491131376731" }
+        },
+        "attachments": [
+          {
+            "id": 15,
+            "message_id": 821,
+            "file_type": "audio",
+            "account_id": 1,
+            "extension": null,
+            "data_url": "https://sischat.sisnova.com.ar/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBOZz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--9ef33969825f0295b4489721520cd8ed8051989f/File.ogg",
+            "thumb_url": "",
+            "file_size": 2719,
+            "width": null,
+            "height": null
+          }
+        ],
+        "sender": {
+          "additional_attributes": {},
+          "custom_attributes": {},
+          "email": null,
+          "id": 31,
+          "identifier": null,
+          "name": "Leandro",
+          "phone_number": "+5491131376731",
+          "thumbnail": "",
+          "blocked": false,
+          "type": "contact"
+        }
+      }
+    ],
+    "labels": [],
+    "meta": {
+      "sender": {
+        "additional_attributes": {},
+        "custom_attributes": {},
+        "email": null,
+        "id": 31,
+        "identifier": null,
+        "name": "Leandro",
+        "phone_number": "+5491131376731",
+        "thumbnail": "",
+        "blocked": false,
+        "type": "contact"
+      },
+      "assignee": null,
+      "team": null,
+      "hmac_verified": false
+    },
+    "status": "pending",
+    "custom_attributes": {},
+    "snoozed_until": null,
+    "unread_count": 1,
+    "first_reply_created_at": "2026-02-28T19:40:53.764Z",
+    "priority": null,
+    "waiting_since": 0,
+    "agent_last_seen_at": 1772307708,
+    "contact_last_seen_at": 0,
+    "last_activity_at": 1772307997,
+    "timestamp": 1772307997,
+    "created_at": 1772307652,
+    "updated_at": 1772307997.0499775
+  },
+  "created_at": "2026-02-28T19:46:37.046Z",
+  "id": 821,
+  "inbox": { "id": 7, "name": "wsapi-sisnova" },
+  "message_type": "incoming",
+  "private": false,
+  "sender": {
+    "account": { "id": 1, "name": "cliente1" },
+    "additional_attributes": {},
+    "avatar": "",
+    "custom_attributes": {},
+    "email": null,
+    "id": 31,
+    "identifier": null,
+    "name": "Leandro",
+    "phone_number": "+5491131376731",
+    "thumbnail": "",
+    "blocked": false
+  },
+  "source_id": "wamid.HBgNNTQ5MTEzMTM3NjczMRUCABIYIEFDQTk1NzcyQjg1MEFBRTUzNTI5NTRDQ0JDMUJDQzlBAA==",
+  "attachments": [
+    {
+      "id": 15,
+      "message_id": 821,
+      "file_type": "audio",
+      "account_id": 1,
+      "extension": null,
+      "data_url": "https://sischat.sisnova.com.ar/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBOZz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--9ef33969825f0295b4489721520cd8ed8051989f/File.ogg",
+      "thumb_url": "",
+      "file_size": 2719,
+      "width": null,
+      "height": null
+    }
+  ],
+  "event": "message_created"
+}
+
+## Ejemplo de sticker desde WhatsApp business API 
+{
+  "account": { "id": 1, "name": "cliente1" },
+  "additional_attributes": {},
+  "content_attributes": {},
+  "content_type": "text",
+  "content": null,
+  "conversation": {
+    "additional_attributes": {},
+    "can_reply": true,
+    "channel": "Channel::Whatsapp",
+    "contact_inbox": {
+      "id": 64,
+      "contact_id": 31,
+      "inbox_id": 7,
+      "source_id": "5491131376731",
+      "created_at": "2026-02-28T19:40:52.762Z",
+      "updated_at": "2026-02-28T19:40:52.762Z",
+      "hmac_verified": false,
+      "pubsub_token": "yvFgzLVkFNgMPj6onpLzpDCU"
+    },
+    "id": 18,
+    "inbox_id": 7,
+    "messages": [
+      {
+        "id": 828,
+        "content": null,
+        "account_id": 1,
+        "inbox_id": 7,
+        "conversation_id": 18,
+        "message_type": 0,
+        "created_at": 1772308650,
+        "updated_at": "2026-02-28T19:57:30.199Z",
+        "private": false,
+        "status": "sent",
+        "source_id": "wamid.HBgNNTQ5MTEzMTM3NjczMRUCABIYIEFDRDREOTk2MzJDQTQyQ0Y2NjkxQ0JGQTdFMERFOTZFAA==",
+        "content_type": "text",
+        "content_attributes": {},
+        "sender_type": "Contact",
+        "sender_id": 31,
+        "external_source_ids": {},
+        "additional_attributes": {},
+        "processed_message_content": null,
+        "sentiment": {},
+        "conversation": {
+          "assignee_id": null,
+          "unread_count": 6,
+          "last_activity_at": 1772308650,
+          "contact_inbox": { "source_id": "5491131376731" }
+        },
+        "attachments": [
+          {
+            "id": 17,
+            "message_id": 828,
+            "file_type": "image",
+            "account_id": 1,
+            "extension": null,
+            "data_url": "https://sischat.sisnova.com.ar/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBPQT09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--b309913f89c79c4aa20bcd9638f5bb003655d453/File.webp",
+            "thumb_url": "https://sischat.sisnova.com.ar/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBPQT09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--b309913f89c79c4aa20bcd9638f5bb003655d453/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaDdCem9MWm05eWJXRjBPZ2h3Ym1jNkUzSmxjMmw2WlY5MGIxOW1hV3hzV3dkcEFmb3ciLCJleHAiOm51bGwsInB1ciI6InZhcmlhdGlvbiJ9fQ==--baba1382641caddd1661b814551b45b9a222e758/File.webp",
+            "file_size": 24162,
+            "width": null,
+            "height": null
+          }
+        ],
+        "sender": {
+          "additional_attributes": {},
+          "custom_attributes": {},
+          "email": null,
+          "id": 31,
+          "identifier": null,
+          "name": "Leandro",
+          "phone_number": "+5491131376731",
+          "thumbnail": "",
+          "blocked": false,
+          "type": "contact"
+        }
+      }
+    ],
+    "labels": [],
+    "meta": {
+      "sender": {
+        "additional_attributes": {},
+        "custom_attributes": {},
+        "email": null,
+        "id": 31,
+        "identifier": null,
+        "name": "Leandro",
+        "phone_number": "+5491131376731",
+        "thumbnail": "",
+        "blocked": false,
+        "type": "contact"
+      },
+      "assignee": null,
+      "team": null,
+      "hmac_verified": false
+    },
+    "status": "pending",
+    "custom_attributes": {},
+    "snoozed_until": null,
+    "unread_count": 6,
+    "first_reply_created_at": "2026-02-28T19:40:53.764Z",
+    "priority": null,
+    "waiting_since": 0,
+    "agent_last_seen_at": 1772307708,
+    "contact_last_seen_at": 0,
+    "last_activity_at": 1772308650,
+    "timestamp": 1772308650,
+    "created_at": 1772307652,
+    "updated_at": 1772308650.2044332
+  },
+  "created_at": "2026-02-28T19:57:30.199Z",
+  "id": 828,
+  "inbox": { "id": 7, "name": "wsapi-sisnova" },
+  "message_type": "incoming",
+  "private": false,
+  "sender": {
+    "account": { "id": 1, "name": "cliente1" },
+    "additional_attributes": {},
+    "avatar": "",
+    "custom_attributes": {},
+    "email": null,
+    "id": 31,
+    "identifier": null,
+    "name": "Leandro",
+    "phone_number": "+5491131376731",
+    "thumbnail": "",
+    "blocked": false
+  },
+  "source_id": "wamid.HBgNNTQ5MTEzMTM3NjczMRUCABIYIEFDRDREOTk2MzJDQTQyQ0Y2NjkxQ0JGQTdFMERFOTZFAA==",
+  "attachments": [
+    {
+      "id": 17,
+      "message_id": 828,
+      "file_type": "image",
+      "account_id": 1,
+      "extension": null,
+      "data_url": "https://sischat.sisnova.com.ar/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBPQT09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--b309913f89c79c4aa20bcd9638f5bb003655d453/File.webp",
+      "thumb_url": "https://sischat.sisnova.com.ar/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBPQT09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--b309913f89c79c4aa20bcd9638f5bb003655d453/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaDdCem9MWm05eWJXRjBPZ2h3Ym1jNkUzSmxjMmw2WlY5MGIxOW1hV3hzV3dkcEFmb3ciLCJleHAiOm51bGwsInB1ciI6InZhcmlhdGlvbiJ9fQ==--baba1382641caddd1661b814551b45b9a222e758/File.webp",
+      "file_size": 24162,
+      "width": null,
+      "height": null
+    }
+  ],
   "event": "message_created"
 }
