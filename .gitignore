@@ -5,11 +5,16 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
 *.egg-info/
 .pytest_cache/
 .coverage
+chroma_db/
+documentos_negocio/
+tokens_calendar/
+config_negocios.json
 
 # Google Calendar Credentials - NEVER COMMIT!
 credentials.json
@@ -39,3 +44,4 @@ service-account.json
 
 # APP
 agent.py
+agent.pid

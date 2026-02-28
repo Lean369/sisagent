@@ -12,6 +12,14 @@ AGENT_SCRIPT="app.py"
 LOG_FILE="logs/sisagent_verbose.log"
 PID_FILE="agent.pid"
 
+# Cargar variables de entorno desde .env
+if [ -f ".env" ]; then
+    export $(grep -v '^#' .env | grep -v '^$' | grep 'APP_PORT' | xargs 2>/dev/null)
+fi
+
+# Obtener APP_PORT del .env o usar default
+APP_PORT=${APP_PORT:-5000}
+
 # Colores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -68,10 +76,10 @@ start() {
         echo -e "${GREEN}✅ Agente iniciado correctamente (PID: $pid)${NC}"
         
         # Verificar health endpoint
-        if curl -s http://localhost:5000/health >/dev/null 2>&1; then
-            echo -e "${GREEN}✅ Health check OK${NC}"
+        if curl -s http://localhost:${APP_PORT}/health >/dev/null 2>&1; then
+            echo -e "${GREEN}✅ Health check OK (puerto ${APP_PORT})${NC}"
         else
-            echo -e "${YELLOW}⚠️  El agente está corriendo pero no responde en puerto 5000${NC}"
+            echo -e "${YELLOW}⚠️  El agente está corriendo pero no responde en puerto ${APP_PORT}${NC}"
             echo "   Revisa: tail -f $LOG_FILE"
         fi
         return 0
@@ -136,7 +144,7 @@ status() {
         local pid=$(get_agent_pid)
         echo -e "${GREEN}✅ Agente corriendo${NC}"
         echo "   PID: $pid"
-        echo "   Puerto: 5000"
+        echo "   Puerto: $APP_PORT (Flask)"
         
         # Mostrar uso de memoria
         local mem=$(ps -p $pid -o rss= 2>/dev/null)
@@ -146,7 +154,7 @@ status() {
         fi
         
         # Verificar health
-        if curl -s http://localhost:5000/health >/dev/null 2>&1; then
+        if curl -s http://localhost:${APP_PORT}/health >/dev/null 2>&1; then
             echo -e "   Health: ${GREEN}OK${NC}"
         else
             echo -e "   Health: ${RED}NO RESPONDE${NC}"
