@@ -12,6 +12,8 @@ curl -X POST http://localhost:5000/reactivar_bot \
   -H "Content-Type: application/json" \
   -d '{"user_id": "5491131376731@s.whatsapp.net", "business_id": "cliente2"}'
 
+curl -X GET https://sisagent.sisnova.org/politica-de-privacidad \
+  -H "Content-Type: application/json"
 
 http://192.168.1.220:5000/reactivar_bot_web?business_id=cliente2&user_id=5491131376731@s.whatsapp.net
 

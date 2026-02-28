@@ -14,7 +14,9 @@ PID_FILE="agent.pid"
 
 # Cargar variables de entorno desde .env
 if [ -f ".env" ]; then
-    export $(grep -v '^#' .env | grep -v '^$' | grep 'APP_PORT' | xargs 2>/dev/null)
+    set -a
+    source .env
+    set +a
 fi
 
 # Obtener APP_PORT del .env o usar default

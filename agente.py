@@ -447,12 +447,13 @@ def procesar_mensaje(mensaje_usuario: str, config: dict) -> dict:
 # ==============================================================================
 # 5. TRANSCRIPCIÓN DE AUDIO (Evolution Baileys WhatsApp)
 # ==============================================================================
-def transcribir_audio(audio_buffer: bytes, thread_id) -> Optional[str]:
+def transcribir_audio(audio_buffer: bytes, thread_id, audio_format: str = "ogg") -> Optional[str]:
     """
     Transcribe un mensaje de audio a texto usando OpenAI
     
     Args:
-        audio_buffer: Bytes del archivo de audio (formato OGG Opus de WhatsApp)
+        audio_buffer: Bytes del archivo de audio
+        audio_format: Formato del audio (ogg, mp4, mp3, wav, etc.)
     
     Returns:
         Texto transcrito o None si hay error
@@ -470,7 +471,7 @@ def transcribir_audio(audio_buffer: bytes, thread_id) -> Optional[str]:
             return None
         
         # Verificar duración del audio
-        audio = AudioSegment.from_file(io.BytesIO(audio_buffer), format="ogg")
+        audio = AudioSegment.from_file(io.BytesIO(audio_buffer), format=audio_format)
         duration_seconds = len(audio) / 1000.0  # pydub da duración en ms
         duration_minutes = duration_seconds / 60.0
         logger.info(f"[AUDIO] Duración del audio: {duration_seconds:.2f} segundos")
@@ -492,8 +493,10 @@ def transcribir_audio(audio_buffer: bytes, thread_id) -> Optional[str]:
             openai_client = OpenAI(api_key=OPENAI_API_KEY)
             
             # Crear un BytesIO buffer con el audio
+            ext_map = {"ogg": "ogg", "mp4": "mp4", "m4a": "mp4", "mp3": "mp3", "wav": "wav", "aac": "aac", "webm": "webm"}
+            ext = ext_map.get(audio_format, audio_format)
             buffer = io.BytesIO(audio_buffer)
-            buffer.name = "audio.ogg"  # OpenAI necesita un nombre con extensión
+            buffer.name = f"audio.{ext}"  # OpenAI necesita un nombre con extensión
             start_time = time.time()
 
             response = openai_client.audio.transcriptions.create(
