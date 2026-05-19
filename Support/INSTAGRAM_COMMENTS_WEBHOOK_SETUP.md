@@ -196,3 +196,31 @@ cd /root/sisagent/sisagent-flask-directo
 **Última actualización:** 28 de febrero de 2026  
 **Autor:** Sisagent Team  
 **Version:** 1.0.0
+
+- Step 1 — Generate new token in Graph API Explorer
+
+App: Sisnova-IG (1188644046682467)
+Add permissions: pages_show_list, pages_read_engagement, instagram_basic, instagram_manage_comments, instagram_manage_messages
+Click Generate Access Token
+
+- Step 2 — Exchange for long-lived user token (60 days)
+
+```bash
+curl "https://graph.facebook.com/v23.0/oauth/access_token?grant_type=fb_exchange_token&client_id=1188644046682467&client_secret=4b323d956cdb1b6fb6dee8e326d9aa42&fb_exchange_token=SHORT_TOKEN_AQUI"
+```
+
+- Step 3 — Get the never-expiring Page token (Page tokens derived from long-lived user tokens don't expire)
+
+```bash
+curl "https://graph.facebook.com/v23.0/me/accounts?fields=access_token,name&access_token=LONG_LIVED_USER_TOKEN"
+```
+Toma el access_token de la página Sisnova.
+
+Step 4 — Update .env and restart
+
+```bash
+cd /home/leanusr/sisagentsed
+sed -i 's|^INSTAGRAM_ACCESS_TOKEN=.*|INSTAGRAM_ACCESS_TOKEN=PAGE_TOKEN_AQUI|' .env
+./agent-manager.sh restart
+```
+

@@ -8,6 +8,8 @@ Capas de protección:
 3. Circuit breaker (detener procesamiento cuando hay sobrecarga)
 4. Whitelist/Blacklist de números
 5. Análisis de patrones de comportamiento
+6. Filtro del Loro (detectar loops de bots que repiten el mismo mensaje)
+7. Rastreo de DMs enviados para evitar spam a los usuarios (cooldown por usuario)
 """
 
 import os
@@ -20,6 +22,39 @@ from typing import Optional, Tuple, Set
 from datetime import datetime, timedelta
 
 load_dotenv()
+
+class TrackerRespuestasDM:
+    """Rastrea a quién ya se le envió un DM motivado por un comentario para evitar spam."""
+    
+    def __init__(self, cooldown_horas=24):
+        # Tiempo que debe pasar antes de volver a enviarle un DM automático al mismo usuario
+        self.cooldown_segundos = cooldown_horas * 3600
+        
+        # Diccionario en memoria: { "user_id": timestamp_del_ultimo_dm }
+        self.usuarios_contactados = {}
+        self.lock = Lock()
+    
+    def ya_recibio_dm(self, user_id: str) -> bool:
+        """Verifica si el usuario ya recibió un DM recientemente."""
+        with self.lock:
+            ahora = time.time()
+            if user_id in self.usuarios_contactados:
+                ultimo_envio = self.usuarios_contactados[user_id]
+                
+                # ¿Sigue dentro del periodo de bloqueo (cooldown)?
+                if ahora - ultimo_envio < self.cooldown_segundos:
+                    return True
+                else:
+                    # El bloqueo expiró, lo borramos para liberar memoria
+                    del self.usuarios_contactados[user_id]
+                    return False
+            return False
+            
+    def registrar_envio(self, user_id: str):
+        """Anota que a este usuario se le acaba de enviar un DM."""
+        with self.lock:
+            self.usuarios_contactados[user_id] = time.time()
+
 
 class GlobalRateLimiter:
     """Rate limiter global para todo el sistema (no por usuario)"""
@@ -196,19 +231,21 @@ class CircuitBreaker:
             return {
                 "state": self.state,
                 "failures": self.failures,
-                "failure_threshold": self.failure_threshold
+                "failure_threshold": self.failure_threshold,
+                "recovery_timeout": self.recovery_timeout
             }
 
 
 class NumberBlacklist:
     """Sistema de blacklist/whitelist de números"""
     
-    def __init__(self):
+    def __init__(self, auto_blacklist_threshold: int = 4):
         self.blacklist: Set[str] = set()
         self.whitelist: Set[str] = set()
         self.auto_blacklist = defaultdict(int)  # contador de comportamiento sospechoso
         self.lock = Lock()
-        logger.info("NumberBlacklist inicializado")
+        self.auto_blacklist_threshold = auto_blacklist_threshold
+        logger.info(f"NumberBlacklist inicializado: auto_blacklist_threshold={auto_blacklist_threshold}")
     
     def is_blocked(self, number: str) -> Tuple[bool, str]:
         """Verifica si un número está bloqueado"""
@@ -221,6 +258,13 @@ class NumberBlacklist:
                 return True, "⚠️ Número bloqueado. Contacta con soporte."
             
             return False, ""
+
+    def remove_from_blacklist(self, number: str):
+        """Remueve un número de la blacklist"""
+        with self.lock:
+            if number in self.blacklist:
+                self.blacklist.discard(number)
+                logger.info(f"NumberBlacklist: número removido de blacklist: {number}")
     
     def add_to_blacklist(self, number: str, reason: str = "manual"):
         """Agrega un número a la blacklist"""
@@ -240,10 +284,13 @@ class NumberBlacklist:
         """Reporta comportamiento sospechoso de un número"""
         with self.lock:
             self.auto_blacklist[number] += 1
-            
+            logger.warning(f"⚠️ NumberBlacklist: comportamiento sospechoso reportado para {number} (total: {self.auto_blacklist[number]})")
             # Auto-blacklist después de 3 reportes
-            if self.auto_blacklist[number] >= 3:
-                self.add_to_blacklist(number, reason="auto-suspicious-behavior")
+            # NOTA: No llamar a add_to_blacklist() aquí porque también adquiere self.lock
+            # y threading.Lock NO es reentrante → deadlock.
+            if self.auto_blacklist[number] >= self.auto_blacklist_threshold:
+                self.blacklist.add(number)
+                logger.warning(f"⚠️ NumberBlacklist: número auto-bloqueado por comportamiento sospechoso: {number}")
     
     def get_stats(self) -> dict:
         """Obtiene estadísticas"""
@@ -251,7 +298,85 @@ class NumberBlacklist:
             return {
                 "blacklist_count": len(self.blacklist),
                 "whitelist_count": len(self.whitelist),
-                "suspicious_count": len(self.auto_blacklist)
+                "suspicious_count": len(self.auto_blacklist),
+                "auto_blacklist_threshold": self.auto_blacklist_threshold,
+                "auto_blacklisted": [num for num, count in self.auto_blacklist.items() if count >= self.auto_blacklist_threshold]
+            }
+
+class UserBehaviorMonitor:
+    """Rate limiter por usuario y detector de loops de bots (Filtro del Loro)"""
+    
+    def __init__(self, max_requests_per_minute=15, max_identical_messages=3, identical_reset_segundos=60):
+        self.max_requests = max_requests_per_minute
+        self.max_identical = max_identical_messages
+        self.identical_reset_segundos = identical_reset_segundos  # ventana de tiempo para considerar repetición
+        
+        # Almacena timestamps por usuario: { user_id: deque([ts1, ts2...]) }
+        self.user_requests = defaultdict(deque)
+        
+        # Almacena el último mensaje, conteo y timestamp:
+        # { user_id: {"text": "...", "count": 1, "last_ts": 1234567890.0} }
+        self.user_last_message = defaultdict(lambda: {"text": "", "count": 0, "last_ts": 0.0})
+        
+        self.lock = Lock()
+        logger.info(f"UserBehaviorMonitor inicializado: max_rpm_per_user={max_requests_per_minute}, max_identical={max_identical_messages}, identical_reset={identical_reset_segundos}s")
+        
+    def puede_procesar(self, user_id: str, texto_actual: str = "") -> Tuple[bool, str, bool]:
+        """
+        Verifica la tasa de mensajes del usuario y si está repitiendo textos.
+        Retorna: (puede_procesar, mensaje_error, es_bot_detectado)
+        """
+        with self.lock:
+            now = time.time()
+            
+            # 1. Verificar Repetición de Texto (Loop de Auto-respuestas)
+            if texto_actual:
+                texto_limpio = texto_actual.strip().lower()
+                last_msg_info = self.user_last_message[user_id]
+                
+                # Si pasó más tiempo del reseteo, el contador vuelve a 0 sin importar el texto
+                tiempo_desde_ultimo = now - last_msg_info["last_ts"]
+                if tiempo_desde_ultimo > self.identical_reset_segundos:
+                    last_msg_info["text"] = texto_limpio
+                    last_msg_info["count"] = 1
+                    last_msg_info["last_ts"] = now
+                elif texto_limpio == last_msg_info["text"]:
+                    last_msg_info["count"] += 1
+                    last_msg_info["last_ts"] = now
+                else:
+                    last_msg_info["text"] = texto_limpio
+                    last_msg_info["count"] = 1
+                    last_msg_info["last_ts"] = now
+                    
+                # Si manda exactamente lo mismo X veces dentro de la ventana de tiempo, es un bot
+                if last_msg_info["count"] >= self.max_identical:
+                    logger.warning(f"⛔ UserBehaviorMonitor: Loop detectado en {user_id} (repitió '{texto_limpio[:20]}...' {last_msg_info['count']} veces en {tiempo_desde_ultimo:.0f}s).")
+                    return False, "⛔ Sistema automatizado detectado.", True # True = ¡Es un bot, reportar!
+            
+            # 2. Verificar Rate Limiting (Velocidad de tipeo humana)
+            reqs = self.user_requests[user_id]
+            
+            # Limpiar mensajes más antiguos a 60 segundos
+            while reqs and now - reqs[0] > 60:
+                reqs.popleft()
+                
+            if len(reqs) >= self.max_requests:
+                logger.warning(f"⛔ UserBehaviorMonitor: Límite excedido para {user_id} ({len(reqs)}/{self.max_requests} por min)")
+                return False, "⛔ Estás enviando mensajes muy rápido. Por favor, espera un minuto.", False
+                
+            # Todo en orden, registrar este mensaje
+            reqs.append(now)
+            return True, "", False
+
+    def get_stats(self) -> dict:
+        """Obtiene estadísticas de usuarios activos"""
+        with self.lock:
+            active_users = sum(1 for reqs in self.user_requests.values() if reqs)
+            return {
+                "active_users_last_minute": active_users,
+                "max_requests_per_user": self.max_requests,
+                "max_identical_messages": self.max_identical,
+                "identical_reset_segundos": self.identical_reset_segundos
             }
 
 
@@ -262,13 +387,20 @@ class DDoSProtection:
                  global_max_rpm=100,
                  max_new_numbers_pm=20,
                  suspicious_threshold=10,
-                 owner_numbers=None):
+                 owner_numbers=None,
+                 user_max_rpm=15,
+                 max_identical_msgs=3,
+                 auto_blacklist_threshold=4,
+                 identical_reset_segundos=60):  # ventana de tiempo para considerar mensajes idénticos como loop
         
         self.global_limiter = GlobalRateLimiter(global_max_rpm)
         self.new_number_detector = NewNumberDetector(max_new_numbers_pm, suspicious_threshold)
         self.circuit_breaker = CircuitBreaker(failure_threshold=10, recovery_timeout=60)
-        self.blacklist = NumberBlacklist()
+        self.blacklist = NumberBlacklist(auto_blacklist_threshold)
         
+        # <--- INSTANCIAMOS EL NUEVO MONITOR
+        self.user_monitor = UserBehaviorMonitor(user_max_rpm, max_identical_msgs, identical_reset_segundos)
+
         # Agregar números del propietario a whitelist automáticamente
         if owner_numbers:
             for number in owner_numbers:
@@ -277,7 +409,7 @@ class DDoSProtection:
         
         logger.info("🛡️ DDoSProtection inicializado con todas las capas de protección")
     
-    def puede_procesar(self, number: str) -> Tuple[bool, str]:
+    def puede_procesar(self, number: str, texto_actual: str = "") -> Tuple[bool, str]:
         """
         Verifica todas las capas de protección
         
@@ -301,6 +433,16 @@ class DDoSProtection:
         
         # 4. Verificar detector de números nuevos
         puede, msg = self.new_number_detector.check_number(number)
+        if not puede:
+            return False, msg
+
+        # 5. NUEVA CAPA: Comportamiento del Usuario (Anti-Spam / Anti-Bot)
+        puede, msg, es_bot = self.user_monitor.puede_procesar(number, texto_actual)
+        
+        # Si detectamos un bot en loop, lo reportamos automáticamente a la blacklist
+        if es_bot:
+            self.reportar_sospechoso(number)
+
         if not puede:
             return False, msg
         
@@ -329,7 +471,8 @@ class DDoSProtection:
             "global_limiter": self.global_limiter.get_stats(),
             "new_numbers": self.new_number_detector.get_stats(),
             "circuit_breaker": self.circuit_breaker.get_stats(),
-            "blacklist": self.blacklist.get_stats()
+            "blacklist": self.blacklist.get_stats(),
+            "user_behavior": self.user_monitor.get_stats()
         }
 
 
@@ -354,11 +497,35 @@ if _enabled:
     _owners_env = os.getenv('DDOS_OWNER_NUMBERS', '')
     _owners = [n.strip() for n in _owners_env.split(',') if n.strip()]
 
+    try:
+        user_max_rpm = int(os.getenv('DDOS_USER_MAX_RPM', '15'))
+    except Exception:
+        user_max_rpm = 15
+
+    try:
+        max_identical_msgs = int(os.getenv('DDOS_MAX_IDENTICAL_MSGS', '3'))
+    except Exception:
+        max_identical_msgs = 3
+
+    try:
+        auto_blacklist_threshold = int(os.getenv('DDOS_AUTO_BLACKLIST', '4'))
+    except Exception:
+        auto_blacklist_threshold = 4
+
+    try:
+        identical_reset_segundos = int(os.getenv('DDOS_IDENTICAL_RESET_SEGUNDOS', '60'))
+    except Exception:
+        identical_reset_segundos = 60
+
     ddos_protection = DDoSProtection(
         global_max_rpm=_global,
         max_new_numbers_pm=_max_new,
         suspicious_threshold=_suspicious,
-        owner_numbers=_owners if _owners else None
+        owner_numbers=_owners if _owners else None,
+        user_max_rpm=user_max_rpm,
+        max_identical_msgs=max_identical_msgs,
+        auto_blacklist_threshold=auto_blacklist_threshold,
+        identical_reset_segundos=identical_reset_segundos
     )
 else:
     ddos_protection = None
