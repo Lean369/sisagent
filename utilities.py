@@ -186,39 +186,51 @@ def gestionar_expiracion_sesion(pool, thread_id: str, ttl_minutos: int):
     LIMIT 1;
     """
 
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            # 1. Obtenemos la fecha del último checkpoint guardado
-            cur.execute(sql_check, (thread_id,))
-            resultado = cur.fetchone()
-            
-            if not resultado:
-                return False # No hay historia previa, es un usuario nuevo
+    # Reintentar una vez si la conexión fue terminada externamente por Postgres (AdminShutdown)
+    for intento in range(2):
+        try:
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    # 1. Obtenemos la fecha del último checkpoint guardado
+                    cur.execute(sql_check, (thread_id,))
+                    resultado = cur.fetchone()
 
-            # Procesamos la fecha
-            last_seen = resultado[0]
-            if last_seen.tzinfo is None:
-                last_seen = last_seen.replace(tzinfo=timezone.utc)
-            
-            # Hora actual en UTC
-            ahora = datetime.now(timezone.utc)
-            
-            # Calculamos la diferencia
-            diferencia = ahora - last_seen
-            
-            # 2. Comparamos
-            if diferencia > timedelta(minutes=ttl_minutos):
-                logger.info(f"🧹 Limpiando memoria de {thread_id}. Inactividad: {diferencia}")
-                
-                # A. Borrar writes
-                cur.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (thread_id,))
-                
-                # B. Borrar blobs
-                cur.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (thread_id,))
-                
-                # C. Borrar checkpoints principales
-                cur.execute("DELETE FROM checkpoints WHERE thread_id = %s", (thread_id,))
-                
-                return True
-            
+                    if not resultado:
+                        return False  # No hay historia previa, es un usuario nuevo
+
+                    # Procesamos la fecha
+                    last_seen = resultado[0]
+                    if last_seen.tzinfo is None:
+                        last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+                    # Hora actual en UTC
+                    ahora = datetime.now(timezone.utc)
+
+                    # Calculamos la diferencia
+                    diferencia = ahora - last_seen
+
+                    # 2. Comparamos
+                    if diferencia > timedelta(minutes=ttl_minutos):
+                        logger.info(f"🧹 Limpiando memoria de {thread_id}. Inactividad: {diferencia}")
+
+                        # A. Borrar writes
+                        cur.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (thread_id,))
+
+                        # B. Borrar blobs
+                        cur.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (thread_id,))
+
+                        # C. Borrar checkpoints principales
+                        cur.execute("DELETE FROM checkpoints WHERE thread_id = %s", (thread_id,))
+
+                        return True
+
+                    return False
+
+        except Exception as e:
+            import psycopg
+            if intento == 0 and isinstance(e, (psycopg.errors.AdminShutdown, psycopg.OperationalError)):
+                logger.warning(f"[DB] Conexión terminada por Postgres, reintentando... ({e})")
+                continue
+            logger.exception(f"[DB] Error en gestionar_expiracion_sesion para {thread_id}: {e}")
             return False
+    return False

@@ -1,6 +1,6 @@
 from loguru import logger
 from logger_config import inicializar_logger, generar_resumen_auditoria
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, render_template
 from flask import Response
 # 🚀 1. Inicializar el logger ANTES que el resto del sistema
 inicializar_logger()
@@ -151,7 +151,7 @@ def enviar_lista_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = 
         # endpoint = f"message/sendButtons/{nombre_instancia}" #SOLO Whatsapp API 
         # endpoint = f"message/sendMedia/{nombre_instancia}" # Funciona en ambos
 
-                # Estructura para envío de botones tipo "reply" (WhatsApp Cloud API)
+        # Estructura para envío de botones tipo "reply" (WhatsApp Cloud API)
         # Cada botón debe tener: type="reply" + reply: { id, title }
         import time
         payload = {
@@ -1747,6 +1747,393 @@ def get_business_metrics():
         return jsonify({"error": str(e)}), 500
 
 
+
+@app.route('/api/dashboard', methods=['GET'])
+def get_dashboard():
+    """
+    Dashboard consolidado para el dueño de la plataforma.
+    Agrega métricas de rendimiento, seguridad, costos y uso de todos los negocios.
+
+    Query params:
+        - start_date  (opcional, YYYY-MM-DD) — default: últimos 30 días
+        - end_date    (opcional, YYYY-MM-DD) — default: hoy
+        - business_id (opcional) — filtrar por negocio específico
+
+    Requiere header:  X-Admin-Token: <ADMIN_TOKEN>
+    """
+    # --- Autenticación ---
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if admin_token:
+        token_header = request.headers.get("X-Admin-Token", "")
+        if token_header != admin_token:
+            logger.warning(f"[DASHBOARD] Acceso no autorizado desde {request.remote_addr}")
+            return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        # --- Parámetros de rango temporal ---
+        start_date_str = request.args.get('start_date')
+        end_date_str   = request.args.get('end_date')
+        business_id    = request.args.get('business_id')  # None = todos
+
+        end_date = (
+            datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
+            if end_date_str else datetime.utcnow()
+        )
+        start_date = (
+            datetime.strptime(start_date_str, '%Y-%m-%d')
+            if start_date_str else end_date - timedelta(days=30)
+        )
+
+        biz_filter     = "AND business_id = %s" if business_id else ""
+        biz_params_pre = (business_id,) if business_id else ()
+
+        logger.info(f"[DASHBOARD] Consulta: {start_date.date()} → {end_date.date()} | negocio: {business_id or 'todos'}")
+
+        dashboard = {
+            "period":      {"start": start_date.strftime('%Y-%m-%d'), "end": (end_date - timedelta(days=1)).strftime('%Y-%m-%d')},
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "filters":     {"business_id": business_id or "all"},
+            "kpis":        {},
+            "performance": {},
+            "costs":       {},
+            "security":    {},
+            "usage":       {},
+            "businesses":  [],
+        }
+
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+
+                # ============================================================
+                # SECCIÓN 1 — KPIs GENERALES
+                # ============================================================
+                cur.execute(f"""
+                    SELECT
+                        COUNT(*)                                            AS total_events,
+                        COUNT(DISTINCT thread_id)                           AS unique_conversations,
+                        COUNT(DISTINCT business_id)                         AS active_businesses,
+                        COALESCE(SUM(input_tokens + output_tokens), 0)      AS total_tokens,
+                        COALESCE(SUM(estimated_cost), 0.0)                  AS total_cost_usd,
+                        COALESCE(AVG(latency_ms), 0)::INT                   AS avg_latency_ms,
+                        COUNT(*) FILTER (WHERE event_type = 'llm_fallback') AS fallback_count,
+                        COUNT(*) FILTER (WHERE event_type = 'transcription') AS transcription_count,
+                        COUNT(*) FILTER (WHERE event_type = 'image_analysis') AS image_count
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                """, (start_date, end_date) + biz_params_pre)
+                row = cur.fetchone()
+                total_events   = row[0] or 1  # evitar div/0
+                fallback_count = row[6] or 0
+                dashboard["kpis"] = {
+                    "total_events":          row[0],
+                    "unique_conversations":  row[1],
+                    "active_businesses":     row[2],
+                    "total_tokens":          row[3],
+                    "total_cost_usd":        round(row[4], 6),
+                    "avg_latency_ms":        row[5],
+                    "fallback_rate_pct":     round(fallback_count / total_events * 100, 2),
+                    "transcription_events":  row[7],
+                    "image_analysis_events": row[8],
+                }
+
+                # ============================================================
+                # SECCIÓN 2 — RENDIMIENTO
+                # ============================================================
+
+                # Latencia percentiles
+                cur.execute(f"""
+                    SELECT
+                        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms)::INT AS p50,
+                        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::INT AS p95,
+                        PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms)::INT AS p99,
+                        MAX(latency_ms)                                                 AS max_ms
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                """, (start_date, end_date) + biz_params_pre)
+                p = cur.fetchone()
+                dashboard["performance"]["latency_percentiles_ms"] = {
+                    "p50": p[0], "p95": p[1], "p99": p[2], "max": p[3]
+                }
+
+                # Latencia promedio por herramienta
+                cur.execute(f"""
+                    SELECT tool_name, AVG(latency_ms)::INT AS avg_ms, COUNT(*) AS calls
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                      AND tool_name IS NOT NULL
+                    {biz_filter}
+                    GROUP BY tool_name
+                    ORDER BY avg_ms DESC
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["performance"]["latency_by_tool"] = [
+                    {"tool": r[0], "avg_latency_ms": r[1], "calls": r[2]}
+                    for r in cur.fetchall()
+                ]
+
+                # Eventos por hora (throughput)
+                cur.execute(f"""
+                    SELECT DATE_TRUNC('hour', timestamp) AS hour, COUNT(*) AS events
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                    GROUP BY hour
+                    ORDER BY hour
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["performance"]["events_per_hour"] = [
+                    {"hour": r[0].isoformat(), "events": r[1]}
+                    for r in cur.fetchall()
+                ]
+
+                # Tasa de fallback diaria
+                cur.execute(f"""
+                    SELECT
+                        DATE(timestamp) AS day,
+                        COUNT(*) FILTER (WHERE event_type = 'llm_fallback') AS fallbacks,
+                        COUNT(*) AS total
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                    GROUP BY day ORDER BY day
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["performance"]["fallback_rate_daily"] = [
+                    {"date": str(r[0]), "fallbacks": r[1], "total": r[2],
+                     "rate_pct": round(r[1] / max(r[2], 1) * 100, 2)}
+                    for r in cur.fetchall()
+                ]
+
+                # ============================================================
+                # SECCIÓN 3 — COSTOS
+                # ============================================================
+
+                # Costo por día
+                cur.execute(f"""
+                    SELECT DATE(timestamp) AS day,
+                           SUM(estimated_cost)             AS cost,
+                           SUM(input_tokens + output_tokens) AS tokens
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                    GROUP BY day ORDER BY day
+                """, (start_date, end_date) + biz_params_pre)
+                rows_daily = cur.fetchall()
+                dashboard["costs"]["daily"] = [
+                    {"date": str(r[0]), "cost_usd": round(r[1] or 0, 6), "tokens": r[2] or 0}
+                    for r in rows_daily
+                ]
+
+                # Proyección mensual (extrapola el promedio diario al mes completo)
+                if rows_daily:
+                    avg_daily_cost = sum(r[1] or 0 for r in rows_daily) / len(rows_daily)
+                    days_in_month  = 30
+                    dashboard["costs"]["monthly_projection_usd"] = round(avg_daily_cost * days_in_month, 4)
+                else:
+                    dashboard["costs"]["monthly_projection_usd"] = 0.0
+
+                # Costo por modelo
+                cur.execute(f"""
+                    SELECT model_name,
+                           SUM(estimated_cost)               AS cost,
+                           SUM(input_tokens)                  AS input_t,
+                           SUM(output_tokens)                 AS output_t,
+                           COUNT(*)                           AS calls
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                      AND model_name IS NOT NULL
+                    {biz_filter}
+                    GROUP BY model_name
+                    ORDER BY cost DESC
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["costs"]["by_model"] = [
+                    {"model": r[0], "cost_usd": round(r[1] or 0, 6),
+                     "input_tokens": r[2] or 0, "output_tokens": r[3] or 0, "calls": r[4]}
+                    for r in cur.fetchall()
+                ]
+
+                # Costo por tipo de evento
+                cur.execute(f"""
+                    SELECT event_type, SUM(estimated_cost) AS cost, COUNT(*) AS calls
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                    GROUP BY event_type ORDER BY cost DESC
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["costs"]["by_event_type"] = [
+                    {"type": r[0], "cost_usd": round(r[1] or 0, 6), "calls": r[2]}
+                    for r in cur.fetchall()
+                ]
+
+                # Ratio input/output tokens (eficiencia de prompt)
+                cur.execute(f"""
+                    SELECT COALESCE(AVG(output_tokens::float / NULLIF(input_tokens, 0)), 0)
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                      AND event_type NOT IN ('transcription', 'image_analysis')
+                    {biz_filter}
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["costs"]["avg_output_input_ratio"] = round((cur.fetchone()[0] or 0), 3)
+
+                # ============================================================
+                # SECCIÓN 4 — SEGURIDAD
+                # ============================================================
+
+                # Tasa de derivaciones HITL (Human-in-the-loop)
+                cur.execute(f"""
+                    SELECT COUNT(*) FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                      AND tool_name = 'solicitar_atencion_humana'
+                    {biz_filter}
+                """, (start_date, end_date) + biz_params_pre)
+                hitl_count = cur.fetchone()[0] or 0
+                dashboard["security"]["hitl_escalations"]      = hitl_count
+                dashboard["security"]["hitl_rate_pct"]         = round(hitl_count / total_events * 100, 2)
+
+                # Negocios activos vs deshabilitados (desde config_negocios.json)
+                try:
+                    config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config_data = json.load(f)
+                    enabled_count  = sum(1 for v in config_data.values() if isinstance(v, dict) and v.get('enabled', True))
+                    disabled_count = len(config_data) - enabled_count
+                    dashboard["security"]["businesses_enabled"]  = enabled_count
+                    dashboard["security"]["businesses_disabled"] = disabled_count
+                except Exception:
+                    dashboard["security"]["businesses_enabled"]  = None
+                    dashboard["security"]["businesses_disabled"] = None
+
+                # Top endpoints con errores de tools externas (Tienda Nube, N8N, etc.)
+                cur.execute(f"""
+                    SELECT tool_name, COUNT(*) AS errors
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                      AND event_type = 'tool_error'
+                    {biz_filter}
+                    GROUP BY tool_name ORDER BY errors DESC
+                    LIMIT 10
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["security"]["tool_errors"] = [
+                    {"tool": r[0], "errors": r[1]} for r in cur.fetchall()
+                ]
+
+                # ============================================================
+                # SECCIÓN 5 — USO Y ADOPTION
+                # ============================================================
+
+                # Usuarios únicos por día
+                cur.execute(f"""
+                    SELECT DATE(timestamp) AS day, COUNT(DISTINCT thread_id) AS users
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                    GROUP BY day ORDER BY day
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["usage"]["daily_unique_users"] = [
+                    {"date": str(r[0]), "users": r[1]} for r in cur.fetchall()
+                ]
+
+                # Top herramientas usadas
+                cur.execute(f"""
+                    SELECT tool_name, COUNT(*) AS calls
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                      AND tool_name IS NOT NULL
+                    {biz_filter}
+                    GROUP BY tool_name ORDER BY calls DESC
+                    LIMIT 15
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["usage"]["top_tools"] = [
+                    {"tool": r[0], "calls": r[1]} for r in cur.fetchall()
+                ]
+
+                # Distribución de tipos de evento
+                cur.execute(f"""
+                    SELECT event_type, COUNT(*) AS count
+                    FROM analytics_events
+                    WHERE timestamp >= %s AND timestamp < %s
+                    {biz_filter}
+                    GROUP BY event_type ORDER BY count DESC
+                """, (start_date, end_date) + biz_params_pre)
+                dashboard["usage"]["event_type_distribution"] = [
+                    {"type": r[0], "count": r[1]} for r in cur.fetchall()
+                ]
+
+                # ============================================================
+                # SECCIÓN 6 — DESGLOSE POR NEGOCIO (solo si no hay filtro)
+                # ============================================================
+                if not business_id:
+                    cur.execute("""
+                        SELECT
+                            business_id,
+                            COUNT(*)                                            AS events,
+                            COUNT(DISTINCT thread_id)                           AS conversations,
+                            COALESCE(SUM(estimated_cost), 0)                    AS cost_usd,
+                            COALESCE(AVG(latency_ms), 0)::INT                   AS avg_latency_ms,
+                            COUNT(*) FILTER (WHERE event_type = 'llm_fallback') AS fallbacks
+                        FROM analytics_events
+                        WHERE timestamp >= %s AND timestamp < %s
+                        GROUP BY business_id
+                        ORDER BY cost_usd DESC
+                    """, (start_date, end_date))
+                    dashboard["businesses"] = [
+                        {
+                            "business_id":    r[0],
+                            "events":         r[1],
+                            "conversations":  r[2],
+                            "cost_usd":       round(r[3], 6),
+                            "avg_latency_ms": r[4],
+                            "fallback_rate_pct": round(r[5] / max(r[1], 1) * 100, 2),
+                        }
+                        for r in cur.fetchall()
+                    ]
+
+        logger.info(f"[DASHBOARD] Respuesta generada exitosamente para periodo {start_date.date()} → {end_date.date()}")
+        return jsonify(dashboard), 200
+
+    except ValueError:
+        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
+    except Exception as e:
+        logger.exception(f"🔴 [DASHBOARD] Error generando dashboard: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/admin/wipe-analytics', methods=['POST'])
+def wipe_analytics():
+    """
+    Endpoint administrativo seguro para vaciar las tablas de analytics.
+
+    Requisitos de seguridad:
+      - Si `ADMIN_TOKEN` está presente en el entorno, se requiere el header
+        `X-Admin-Token` con ese valor.
+      - El cuerpo JSON debe contener `{"confirm": "I UNDERSTAND"}` para
+        evitar borrados accidentales.
+
+    Acción: ejecuta `TRUNCATE TABLE analytics_events RESTART IDENTITY CASCADE`.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if admin_token:
+        token_header = request.headers.get("X-Admin-Token", "")
+        if token_header != admin_token:
+            logger.warning(f"[ADMIN] Intento no autorizado de wipe desde {request.remote_addr}")
+            return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        data = request.get_json(silent=True) or {}
+        if data.get("confirm") != "I UNDERSTAND":
+            return jsonify({"error": "Missing explicit confirmation. Send JSON {\"confirm\":\"I UNDERSTAND\"}"}), 400
+
+        # Ejecutar TRUNCATE de forma atómica
+        with pool.connection() as conn:
+            conn.execute("TRUNCATE TABLE analytics_events RESTART IDENTITY CASCADE")
+
+        logger.info(f"[ADMIN] analytics_events truncated by {request.remote_addr} (user-agent: {request.headers.get('User-Agent')})")
+        return jsonify({"status": "ok", "message": "analytics_events truncated"}), 200
+
+    except Exception as e:
+        logger.exception(f"🔴 [ADMIN] Error truncating analytics_events: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # ==============================================================================
 # ENDPOINTS DE GESTIÓN DE CLIENTES (config_negocios.json)
 # ==============================================================================
@@ -2037,6 +2424,25 @@ def ver_grafo_png():
 
     except Exception as e:
         return f"Error generando grafo: {str(e)}", 500
+
+
+@app.route('/dashboard', methods=['GET'])
+def ops_dashboard():
+    """Sirve el dashboard de operaciones de la plataforma.
+    Requiere header X-Admin-Token o query param ?token=<ADMIN_TOKEN> si está configurado.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if admin_token:
+        token = (
+            request.headers.get("X-Admin-Token", "") or
+            request.args.get("token", "")
+        )
+        if token != admin_token:
+            logger.warning(f"[DASHBOARD] Acceso no autorizado desde {request.remote_addr}")
+            return jsonify({"error": "Unauthorized"}), 401
+
+    logger.info(f"[DASHBOARD] Acceso al dashboard desde {request.remote_addr}")
+    return render_template("dashboard.html")
 
 
 # curl -sS http://localhost:5001/health

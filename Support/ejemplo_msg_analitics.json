@@ -1,0 +1,116 @@
+{
+  "businesses": [
+    {
+      "avg_latency_ms": 612,
+      "business_id": "cliente6",
+      "conversations": 3,
+      "cost_usd": 0.012762,
+      "events": 54,
+      "fallback_rate_pct": 0.0
+    }
+  ],
+  "costs": {
+    "avg_output_input_ratio": 0.11,
+    "by_event_type": [
+      { "calls": 53, "cost_usd": 0.008894, "type": "llm_primary" },
+      { "calls": 1, "cost_usd": 0.003868, "type": "image_analysis" }
+    ],
+    "by_model": [
+      {
+        "calls": 53,
+        "cost_usd": 0.008894,
+        "input_tokens": 85697,
+        "model": "openai/gpt-oss-20b",
+        "output_tokens": 8223
+      },
+      {
+        "calls": 1,
+        "cost_usd": 0.003868,
+        "input_tokens": 25605,
+        "model": "gpt-4o-mini-2024-07-18",
+        "output_tokens": 45
+      }
+    ],
+    "daily": [
+      { "cost_usd": 0.012215, "date": "2026-06-11", "tokens": 113586 },
+      { "cost_usd": 0.000547, "date": "2026-06-12", "tokens": 5984 }
+    ],
+    "monthly_projection_usd": 0.1914
+  },
+  "filters": { "business_id": "all" },
+  "generated_at": "2026-06-12T19:22:22.441427Z",
+  "kpis": {
+    "active_businesses": 1,
+    "avg_latency_ms": 612,
+    "fallback_rate_pct": 0.0,
+    "image_analysis_events": 1,
+    "total_cost_usd": 0.012762,
+    "total_events": 54,
+    "total_tokens": 119570,
+    "transcription_events": 0,
+    "unique_conversations": 3
+  },
+  "performance": {
+    "events_per_hour": [
+      { "events": 12, "hour": "2026-06-11T00:00:00-03:00" },
+      { "events": 1, "hour": "2026-06-11T09:00:00-03:00" },
+      { "events": 2, "hour": "2026-06-11T12:00:00-03:00" },
+      { "events": 7, "hour": "2026-06-11T17:00:00-03:00" },
+      { "events": 6, "hour": "2026-06-11T20:00:00-03:00" },
+      { "events": 20, "hour": "2026-06-11T22:00:00-03:00" },
+      { "events": 1, "hour": "2026-06-12T06:00:00-03:00" },
+      { "events": 4, "hour": "2026-06-12T08:00:00-03:00" },
+      { "events": 1, "hour": "2026-06-12T09:00:00-03:00" }
+    ],
+    "fallback_rate_daily": [
+      { "date": "2026-06-11", "fallbacks": 0, "rate_pct": 0.0, "total": 48 },
+      { "date": "2026-06-12", "fallbacks": 0, "rate_pct": 0.0, "total": 6 }
+    ],
+    "latency_by_tool": [
+      { "avg_latency_ms": 2941, "calls": 1, "tool": "image_analysis" },
+      { "avg_latency_ms": 599, "calls": 38, "tool": "text_resp" },
+      {
+        "avg_latency_ms": 522,
+        "calls": 7,
+        "tool": "consultar_productos_tiendanube"
+      },
+      {
+        "avg_latency_ms": 471,
+        "calls": 6,
+        "tool": "consultar_orden_tiendanube"
+      },
+      { "avg_latency_ms": 430, "calls": 2, "tool": "solicitar_atencion_humana" }
+    ],
+    "latency_percentiles_ms": {
+      "max": 2941,
+      "p50": 514,
+      "p95": 869,
+      "p99": 2203
+    }
+  },
+  "period": { "end": "2026-06-11", "start": "2026-05-13" },
+  "security": {
+    "businesses_disabled": 0,
+    "businesses_enabled": 5,
+    "hitl_escalations": 2,
+    "hitl_rate_pct": 3.7,
+    "tool_errors": []
+  },
+  "usage": {
+    "daily_unique_users": [
+      { "date": "2026-06-11", "users": 3 },
+      { "date": "2026-06-12", "users": 1 }
+    ],
+    "event_type_distribution": [
+      { "count": 53, "type": "llm_primary" },
+      { "count": 1, "type": "image_analysis" }
+    ],
+    "top_tools": [
+      { "calls": 38, "tool": "text_resp" },
+      { "calls": 7, "tool": "consultar_productos_tiendanube" },
+      { "calls": 6, "tool": "consultar_orden_tiendanube" },
+      { "calls": 2, "tool": "solicitar_atencion_humana" },
+      { "calls": 1, "tool": "image_analysis" }
+    ]
+  }
+}

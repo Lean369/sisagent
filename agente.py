@@ -32,6 +32,7 @@ from tools_crm import trigger_booking_tool, consultar_stock, ver_menu
 from tools_hitl import solicitar_atencion_humana
 from tools_rag import consultar_base_conocimiento
 from tools_n8n import invoke_n8n
+from tools_tienda_nube import consultar_orden_tiendanube, consultar_productos_tiendanube
 from tools_calendar import completar_auth_calendar, agendar_cita_calendar, consultar_citas_calendar
 from analytics import registrar_evento
 
@@ -62,6 +63,8 @@ TOOLS_REGISTRY = {
     "solicitar_atencion_humana": solicitar_atencion_humana,
     "consultar_base_conocimiento": consultar_base_conocimiento,
     "invoke_n8n": invoke_n8n,
+    "consultar_orden_tiendanube": consultar_orden_tiendanube,
+    "consultar_productos_tiendanube": consultar_productos_tiendanube,
     "agendar_cita_calendar": agendar_cita_calendar,
     "consultar_citas_calendar": consultar_citas_calendar
 }
@@ -114,7 +117,16 @@ DB_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # Configuración del pool de conexiones a Postgres para el checkpointer de LangGraph
 # Soporta hasta 20 conexiones concurrentes (20 usuarios simultáneos). Ajustar según necesidades y recursos.
-pool = ConnectionPool(conninfo=DB_URI, min_size=1, max_size=20, kwargs={"autocommit": True})
+# reconnect_timeout=30: si una conexión muerta no puede reconectarse en 30s, se descarta.
+# max_waiting=20: evita acumulación de requests cuando Postgres se reinicia.
+pool = ConnectionPool(
+    conninfo=DB_URI,
+    min_size=1,
+    max_size=20,
+    kwargs={"autocommit": True},
+    reconnect_timeout=30,
+    max_waiting=20,
+)
 
 with pool.connection() as conn:
     checkpointer_temp = PostgresSaver(conn)

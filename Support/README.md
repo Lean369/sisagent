@@ -2083,6 +2083,8 @@ Para preguntas o soporte, contactar al equipo de desarrollo interno.
 **Autor**: Sisnova Tech Team
 
 ### Changelog
+#### v2.2.0 (2026-06-xx)
+- ✅ Se agregan herramintas de consultas a API de Tienda Nube para obtener info de órdenes y de productos
 
 #### v2.1.0 (2026-01-25)
 - ✅ Sistema de protección DDoS multi-capa (5 capas de defensa)
