@@ -27,3 +27,4 @@ sentry-sdk>=1.0.0
 langchain-chroma
 pypdf
 tiktoken
+flasgger==0.9.5

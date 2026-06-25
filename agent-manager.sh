@@ -8,7 +8,8 @@ cd "$SCRIPT_DIR"
 
 PYTHON_BIN="./.venv/bin/python"
 #AGENT_SCRIPT="agent.py"
-AGENT_SCRIPT="app.py"
+# Ejecutar como módulo para que los imports del paquete funcionen
+AGENT_SCRIPT="app.run"
 LOG_FILE="logs/sisagent_verbose.log"
 PID_FILE="agent.pid"
 
@@ -30,7 +31,8 @@ NC='\033[0m' # No Color
 
 # Función para obtener PID del agente
 get_agent_pid() {
-    pgrep -f "python.*$AGENT_SCRIPT" | head -1
+    # Buscar procesos que ejecuten el módulo app.run (tanto -m app.run como ejecuciones directas)
+    pgrep -f "python.*app\.run" | head -1
 }
 
 # Función para verificar si el agente está corriendo
@@ -65,9 +67,11 @@ start() {
         echo "   Copia .env.example y configura las variables"
     fi
     
-    # Iniciar el agente en modo
-    nohup $PYTHON_BIN $AGENT_SCRIPT > /dev/null 2>&1 &
-    #nohup $PYTHON_BIN $AGENT_SCRIPT >> $LOG_FILE 2>&1 &
+    # Iniciar el agente en modo módulo para preservar imports de paquete
+    nohup $PYTHON_BIN -m $AGENT_SCRIPT >> $LOG_FILE 2>&1 &
+
+    #nohup $PYTHON_BIN -m $AGENT_SCRIPT > /dev/null 2>&1 &
+
     local pid=$!
     
     # Esperar un momento para verificar que se inició

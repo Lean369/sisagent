@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
-from utilities import obtener_configuraciones
+from ..utils.utilities import obtener_configuraciones
 
 # Variables de configuración
 GOOGLE_BOOKING_URL = os.getenv('GOOGLE_BOOKING_URL', '')

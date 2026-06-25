@@ -201,7 +201,7 @@ http://192.168.1.220:5000/reactivar_bot_web?token=eyJhbGciOiJIUzI1NiIsInR5cCI6Ik
 3.  DELETE /borrar_memoria: Resetea la conversación de un usuario.
 
 ```bash
-curl -X DELETE http://localhost:5000/borrar_memoria \
+curl -X DELETE http://localhost:5000/api/borrar_memoria \
   -H "Content-Type: application/json" \
   -d '{"user_id":"5491131376731@s.whatsapp.net", "business_id":"cliente6"}'
 ```

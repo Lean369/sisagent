@@ -18,6 +18,7 @@ def consultar_base_conocimiento(pregunta: str, business_id: str) -> str:
     o información específica del negocio que NO está en el prompt del sistema.
     """
     try:
+        logger.info(f"🔍 Pregunta:  '{pregunta}'")
         # 1. Buscamos los 3 fragmentos más parecidos a la pregunta
         resultados = vector_store.similarity_search(pregunta, k=3)
         

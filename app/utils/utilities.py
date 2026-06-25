@@ -11,7 +11,8 @@ from loguru import logger
 # Variables globales internas para caché
 _CONFIG_CACHE = {}
 _LAST_MTIME = 0
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+#_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'services', 'config_negocios.json')
 
 def obtener_configuraciones():
     """

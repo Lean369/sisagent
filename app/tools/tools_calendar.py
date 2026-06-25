@@ -128,7 +128,7 @@ def completar_auth_calendar(auth_code: str, config: RunnableConfig) -> str:
     try:
         # Recuperamos de qué cliente es este bot
         business_id = config.get("configurable", {}).get("business_id", "cliente1")
-        token_file = f"tokens_calendar/{business_id}_token.json"
+        token_file = f"tools/tokens_calendar/{business_id}_token.json"
         
         logger.info(f"🔄 Procesando código de autorización para {business_id}...")
         logger.info(f"📝 Código recibido: {auth_code}")
@@ -212,7 +212,7 @@ def agendar_cita_calendar(nombre: str, email_cliente: str, fecha_hora_iso: str, 
     try:
         # Recuperamos de qué cliente es este bot para saber qué token usar
         business_id = config.get("configurable", {}).get("business_id", "cliente1")
-        token_file = f"tokens_calendar/{business_id}_token.json"
+        token_file = f"tools/tokens_calendar/{business_id}_token.json"
         
         logger.info(f"📅 Intentando agendar cita para {nombre} ({email_cliente}) en {fecha_hora_iso}")
         
@@ -363,7 +363,7 @@ def consultar_citas_calendar(fecha_iso: str, config: RunnableConfig) -> str:
     try:
         # Recuperar business_id
         business_id = config.get("configurable", {}).get("business_id", "cliente1")
-        token_file = f"tokens_calendar/{business_id}_token.json"
+        token_file = f"tools/tokens_calendar/{business_id}_token.json"
         
         logger.info(f"📅 Consultando citas para {business_id} en fecha: {fecha_iso}")
         
@@ -514,11 +514,11 @@ def main():
     """
     creds = None
     # El archivo token.json guarda los tokens de acceso del usuario.
-    if not os.path.exists("tokens_calendar"):
-        os.makedirs("tokens_calendar")
-    if os.path.exists(f'tokens_calendar/{client_id}_token.json'):
+    if not os.path.exists("tools/tokens_calendar"):
+        os.makedirs("tools/tokens_calendar")
+    if os.path.exists(f'tools/tokens_calendar/{client_id}_token.json'):
         logger.info("🔑 Cargando credenciales desde token.json...")
-        creds = Credentials.from_authorized_user_file(f'tokens_calendar/{client_id}_token.json', SCOPES)
+        creds = Credentials.from_authorized_user_file(f'tools/tokens_calendar/{client_id}_token.json', SCOPES)
     
     # Si no hay credenciales válidas, deja que el usuario inicie sesión.
     if not creds or not creds.valid:
@@ -543,7 +543,7 @@ def main():
             logger.info("🔄 Intercambiando código por token...")
             creds = authenticate_with_code(auth_code)
         # Guarda las credenciales para la próxima vez
-        with open(f'tokens_calendar/{client_id}_token.json', 'w') as token:
+        with open(f'tools/tokens_calendar/{client_id}_token.json', 'w') as token:
             token.write(creds.to_json())
 
     service = build('calendar', 'v3', credentials=creds)

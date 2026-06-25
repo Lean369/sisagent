@@ -142,7 +142,7 @@ Crea un nuevo cliente en la configuración.
 
 **Ejemplo cURL:**
 ```bash
-curl -X POST http://localhost:5000/api/config/clientes \
+curl -X POST http://localhost:5001/api/config/clientes \
   -H "Content-Type: application/json" \
   -d '{
     "business_id": "cliente10",
@@ -265,7 +265,7 @@ Actualiza solo los campos especificados de un cliente.
 curl -X PATCH http://localhost:5000/api/config/clientes/cliente2 \
   -H "Content-Type: application/json" \
   -d '{
-    "nombre": "Luigi''s Pizza Renovado",
+    "nombre": "cliente-test-renovado",
     "ttl_sesion_minutos": 15
   }'
 ```

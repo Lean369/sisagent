@@ -1,9 +1,10 @@
 import time
-from psycopg_pool import ConnectionPool
+#from psycopg_pool import ConnectionPool
 from loguru import logger
 from langchain_core.messages import BaseMessage
 import os
 import json
+from app.db import get_pool
 
 
 # ==============================================================================
@@ -24,7 +25,7 @@ def cargar_pricing():
 
 MODEL_PRICING = cargar_pricing()
 
-def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmPrimary=True):
+def registrar_evento(result, thread_id, latency_ms, isLlmPrimary=True):
     """
     1- Extrae tokens y calcula costo exacto según el modelo utilizado.
     2- Inserta un evento en la tabla de analytics de forma segura.
@@ -211,7 +212,7 @@ def registrar_evento(pool: ConnectionPool, result, thread_id, latency_ms, isLlmP
             model_name, estimated_cost, latency_ms, tool_name, sentiment_label)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-
+            pool = get_pool()
             with pool.connection() as conn:
                 conn.execute(sql, data)
 

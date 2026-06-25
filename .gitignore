@@ -24,7 +24,7 @@ service-account.json
 # Environment variables
 .env
 
-# Logs
+Logs
 *.log
 agent.log
 agent_verbose.log

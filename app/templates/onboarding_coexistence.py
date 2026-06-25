@@ -7,7 +7,7 @@ REDIRECT_URI = os.getenv("REDIRECT_URI", "https://tu-dominio.com/callback/whatsa
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "https://tu-evolution-api.com")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "TU_APIKEY")
 
-ONBOARDING_HTML = f"""<!DOCTYPE html>
+onboarding_coexistence_html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">

@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from langgraph.checkpoint.postgres import PostgresSaver
 from loguru import logger
-from utilities import obtener_nombres_dias, obtener_configuraciones
+from ..utils.utilities import obtener_nombres_dias, obtener_configuraciones
 
 
 class HorarioFueraServicio:
@@ -35,6 +35,7 @@ class ClienteConfig:
         
         self.mensaje_hitl = data.get("mensaje_HITL")
         self.tools_habilitadas = data.get("tools_habilitadas", [])
+        self.thread_id_router = data.get("thread_id_router", {"default": {"route": "lang_graph", "priority": 1}})
 
     def es_horario_laboral(self) -> tuple[bool, str]:
         if not self.fuera_de_servicio.activo:

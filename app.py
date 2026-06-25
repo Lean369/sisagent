@@ -75,1550 +75,1550 @@ EVOLUTION_API_KEY = os.environ.get("EVOLUTION_API_KEY")
 
 client = EvolutionClient(base_url=EVOLUTION_URL, api_token=EVOLUTION_API_KEY)
 
-def enviar_documento_whatsapp(numero_destino: str, documento, nombre_instancia: str = None, 
-                              filename: str = "documento.pdf", caption: str = None):
-    """Envía un documento a través del cliente de Evolution API.
+# def enviar_documento_whatsapp(numero_destino: str, documento, nombre_instancia: str = None, 
+#                               filename: str = "documento.pdf", caption: str = None):
+#     """Envía un documento a través del cliente de Evolution API.
     
-    Args:
-        numero_destino: Número en formato internacional (549...)
-        documento: Puede ser:
-            - URL del documento (str que empiece con http:// o https://)
-            - Base64 del documento (str sin prefijo o con data:application/pdf;base64,)
-        nombre_instancia: Nombre de la instancia Evolution
-        filename: Nombre del archivo que verá el usuario
-        caption: Texto opcional que acompaña al documento
-    """
-    logger.debug(f"Enviando documento a WhatsApp: {numero_destino} - {filename}")
+#     Args:
+#         numero_destino: Número en formato internacional (549...)
+#         documento: Puede ser:
+#             - URL del documento (str que empiece con http:// o https://)
+#             - Base64 del documento (str sin prefijo o con data:application/pdf;base64,)
+#         nombre_instancia: Nombre de la instancia Evolution
+#         filename: Nombre del archivo que verá el usuario
+#         caption: Texto opcional que acompaña al documento
+#     """
+#     logger.debug(f"Enviando documento a WhatsApp: {numero_destino} - {filename}")
 
-    try:
-        endpoint = f"message/sendMedia/{nombre_instancia}"
+#     try:
+#         endpoint = f"message/sendMedia/{nombre_instancia}"
         
-        # Detectar si es URL o base64
-        is_url = isinstance(documento, str) and (documento.startswith('http://') or documento.startswith('https://'))
+#         # Detectar si es URL o base64
+#         is_url = isinstance(documento, str) and (documento.startswith('http://') or documento.startswith('https://'))
         
-        if is_url:
-            # Enviar como URL
-            payload = {
-                "number": numero_destino,
-                "mediatype": "document",
-                "mimetype": "application/pdf",
-                "caption": caption or f"📄 {filename}",
-                "fileName": filename,
-                "media": documento
-            }
-        else:
-            # Enviar como base64
-            # Limpiar el base64 si viene con el prefijo data:
-            base64_data = documento
-            if base64_data.startswith('data:'):
-                base64_data = base64_data.split(',')[1]
+#         if is_url:
+#             # Enviar como URL
+#             payload = {
+#                 "number": numero_destino,
+#                 "mediatype": "document",
+#                 "mimetype": "application/pdf",
+#                 "caption": caption or f"📄 {filename}",
+#                 "fileName": filename,
+#                 "media": documento
+#             }
+#         else:
+#             # Enviar como base64
+#             # Limpiar el base64 si viene con el prefijo data:
+#             base64_data = documento
+#             if base64_data.startswith('data:'):
+#                 base64_data = base64_data.split(',')[1]
             
-            payload = {
-                "number": numero_destino,
-                "mediatype": "document",
-                "mimetype": "application/pdf",
-                "caption": caption or f"📄 {filename}",
-                "fileName": filename,
-                "media": base64_data
-            }
+#             payload = {
+#                 "number": numero_destino,
+#                 "mediatype": "document",
+#                 "mimetype": "application/pdf",
+#                 "caption": caption or f"📄 {filename}",
+#                 "fileName": filename,
+#                 "media": base64_data
+#             }
     
-        response = client.post(endpoint, data=payload)
+#         response = client.post(endpoint, data=payload)
         
-        if not response:
-            logger.error(f"❌ Evolution client returned empty response")
-            return {"status": "failed", "error": "Empty response from Evolution API"}
+#         if not response:
+#             logger.error(f"❌ Evolution client returned empty response")
+#             return {"status": "failed", "error": "Empty response from Evolution API"}
         
-        logger.info(f"✅ Documento '{filename}' enviado correctamente a {numero_destino}")
-        logger.debug(f"Sent document with instance={nombre_instancia} response={str(response)[:200]}")
+#         logger.info(f"✅ Documento '{filename}' enviado correctamente a {numero_destino}")
+#         logger.debug(f"Sent document with instance={nombre_instancia} response={str(response)[:200]}")
         
-        return response
+#         return response
             
-    except Exception as e:
-        logger.error(f"🔴 Exception when sending document with instance {nombre_instancia}: {e}")
-        return {"status": "failed", "error": str(e)}
+#     except Exception as e:
+#         logger.error(f"🔴 Exception when sending document with instance {nombre_instancia}: {e}")
+#         return {"status": "failed", "error": str(e)}
 
 
-def enviar_lista_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
-    """Envía un mensaje con botones interactivos a través del cliente de Evolution API.
-    Soporta hasta 3 botones de tipo 'reply'.
-    """
-    logger.debug(f"Enviando mensaje con botón a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
+# def enviar_lista_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
+#     """Envía un mensaje con botones interactivos a través del cliente de Evolution API.
+#     Soporta hasta 3 botones de tipo 'reply'.
+#     """
+#     logger.debug(f"Enviando mensaje con botón a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
 
-    try:
-        endpoint = f"message/sendText/{nombre_instancia}" # SOLO Whatsapp API 
-        # endpoint = f"message/sendList/{nombre_instancia}" #SOLO Whatsapp API 
-        # endpoint = f"message/sendPoll/{nombre_instancia}" # SOLO baileys
-        # endpoint = f"message/sendButtons/{nombre_instancia}" #SOLO Whatsapp API 
-        # endpoint = f"message/sendMedia/{nombre_instancia}" # Funciona en ambos
+#     try:
+#         endpoint = f"message/sendText/{nombre_instancia}" # SOLO Whatsapp API 
+#         # endpoint = f"message/sendList/{nombre_instancia}" #SOLO Whatsapp API 
+#         # endpoint = f"message/sendPoll/{nombre_instancia}" # SOLO baileys
+#         # endpoint = f"message/sendButtons/{nombre_instancia}" #SOLO Whatsapp API 
+#         # endpoint = f"message/sendMedia/{nombre_instancia}" # Funciona en ambos
 
-        # Estructura para envío de botones tipo "reply" (WhatsApp Cloud API)
-        # Cada botón debe tener: type="reply" + reply: { id, title }
-        import time
-        payload = {
-            "number": numero_destino,
-            "text": f"https://sisagent.sisnova.org/", #?v={int(time.time())}",  # ?v= fuerza re-fetch del preview
-            "linkPreview": True,
-            "delay": 1200
-        }
+#         # Estructura para envío de botones tipo "reply" (WhatsApp Cloud API)
+#         # Cada botón debe tener: type="reply" + reply: { id, title }
+#         import time
+#         payload = {
+#             "number": numero_destino,
+#             "text": f"https://sisagent.sisnova.org/", #?v={int(time.time())}",  # ?v= fuerza re-fetch del preview
+#             "linkPreview": True,
+#             "delay": 1200
+#         }
 
-        payload_media = {
-            "number": numero_destino,
-            "mediatype": "image",
-            "mimetype": "image/jpeg",
-            "fileName": "botas.jpeg",
-            "media": "https://sisagent.sisnova.org/static/botas.jpeg",
-            "caption": "https://sisagent.sisnova.org/"
-        }       
+#         payload_media = {
+#             "number": numero_destino,
+#             "mediatype": "image",
+#             "mimetype": "image/jpeg",
+#             "fileName": "botas.jpeg",
+#             "media": "https://sisagent.sisnova.org/static/botas.jpeg",
+#             "caption": "https://sisagent.sisnova.org/"
+#         }       
 
-        payload_poll = {
-            "number": numero_destino,
-            "name": mensaje,
-            "selectableCount": 1,
-            "values": [
-                "Opción 1",
-                "Opción 2",
-                "Opción 3"
-            ]
-        }
+#         payload_poll = {
+#             "number": numero_destino,
+#             "name": mensaje,
+#             "selectableCount": 1,
+#             "values": [
+#                 "Opción 1",
+#                 "Opción 2",
+#                 "Opción 3"
+#             ]
+#         }
 
-        # Estructura para envío de botones tipo "list" (más visual, recomendado para WhatsApp)
-        payload_list = {
-            "number": numero_destino,
-            "title": mensaje,
-            "description": "Selecciona una opción:",
-            "buttonText": "Ver opciones",
-            "footerText": "Powered by Sisnova",
-            "sections": [
-                {
-                    "title": "Opciones disponibles",
-                    "rows": [
-                        {
-                            "title": "Opción 1",
-                            "description": "Descripción de opción 1",
-                            "rowId": "btn_1"
-                        },
-                        {
-                            "title": "Opción 2",
-                            "description": "Descripción de opción 2",
-                            "rowId": "btn_2"
-                        }
-                    ]
-                }
-            ]
-        }
+#         # Estructura para envío de botones tipo "list" (más visual, recomendado para WhatsApp)
+#         payload_list = {
+#             "number": numero_destino,
+#             "title": mensaje,
+#             "description": "Selecciona una opción:",
+#             "buttonText": "Ver opciones",
+#             "footerText": "Powered by Sisnova",
+#             "sections": [
+#                 {
+#                     "title": "Opciones disponibles",
+#                     "rows": [
+#                         {
+#                             "title": "Opción 1",
+#                             "description": "Descripción de opción 1",
+#                             "rowId": "btn_1"
+#                         },
+#                         {
+#                             "title": "Opción 2",
+#                             "description": "Descripción de opción 2",
+#                             "rowId": "btn_2"
+#                         }
+#                     ]
+#                 }
+#             ]
+#         }
         
-        # Estructura para envío de botones tipo "reply" (más simple, pero menos visual)
-        payload_buttons = {
-            "number": numero_destino,
-            "title": mensaje,
-            "description": "Selecciona una opción:",
-            "footerText": "Powered by Sisnova",
-            "buttons": [
-                {
-                    "type": "reply",
-                    "displayText": "Opción 1",
-                    "id": "btn_1"
-                },
-                {
-                    "type": "reply",
-                    "displayText": "Opción 2",
-                    "id": "btn_2"
-                },
-                {
-                    "type": "reply",
-                    "displayText": "Opción 3",
-                    "id": "btn_3"
-                }
-            ]
-        }
+#         # Estructura para envío de botones tipo "reply" (más simple, pero menos visual)
+#         payload_buttons = {
+#             "number": numero_destino,
+#             "title": mensaje,
+#             "description": "Selecciona una opción:",
+#             "footerText": "Powered by Sisnova",
+#             "buttons": [
+#                 {
+#                     "type": "reply",
+#                     "displayText": "Opción 1",
+#                     "id": "btn_1"
+#                 },
+#                 {
+#                     "type": "reply",
+#                     "displayText": "Opción 2",
+#                     "id": "btn_2"
+#                 },
+#                 {
+#                     "type": "reply",
+#                     "displayText": "Opción 3",
+#                     "id": "btn_3"
+#                 }
+#             ]
+#         }
     
-        response = client.post(endpoint, data=payload)
-        logger.debug(f"Response from Evolution API: {str(response)[:200]}")
+#         response = client.post(endpoint, data=payload)
+#         logger.debug(f"Response from Evolution API: {str(response)[:200]}")
 
-        if not response:
-            logger.error(f"❌ Evolution client returned empty response")
-            return {"status": "failed", "error": "Empty response from Evolution API"}
-        # else:
-        #     sleep(0.2)  # Pequeña pausa 0,2 segundos para evitar problemas de orden en la API de Evolution
-        #     buttons_endpoint = f"message/sendButtons/{nombre_instancia}"
-        #     buttons_payload = {
-        #         "number": numero_destino,
-        #         "title": "¿Cómo podemos ayudarte?",
-        #         "buttons": [
-        #             {
-        #                 "type": "reply",
-        #                 "displayText": "🛒 Comprar ahora!",
-        #                 "id": "btn_asesor"
-        #             },
-        #             {
-        #                 "type": "reply",
-        #                 "displayText": " Ver más información",
-        #                 "id": "btn_info"
-        #             }
-        #         ]
-        #     }
-        #     response = client.post(buttons_endpoint, data=buttons_payload)
-        #     logger.debug(f"Response from sending buttons: {str(response)[:200]}")
+#         if not response:
+#             logger.error(f"❌ Evolution client returned empty response")
+#             return {"status": "failed", "error": "Empty response from Evolution API"}
+#         # else:
+#         #     sleep(0.2)  # Pequeña pausa 0,2 segundos para evitar problemas de orden en la API de Evolution
+#         #     buttons_endpoint = f"message/sendButtons/{nombre_instancia}"
+#         #     buttons_payload = {
+#         #         "number": numero_destino,
+#         #         "title": "¿Cómo podemos ayudarte?",
+#         #         "buttons": [
+#         #             {
+#         #                 "type": "reply",
+#         #                 "displayText": "🛒 Comprar ahora!",
+#         #                 "id": "btn_asesor"
+#         #             },
+#         #             {
+#         #                 "type": "reply",
+#         #                 "displayText": " Ver más información",
+#         #                 "id": "btn_info"
+#         #             }
+#         #         ]
+#         #     }
+#         #     response = client.post(buttons_endpoint, data=buttons_payload)
+#         #     logger.debug(f"Response from sending buttons: {str(response)[:200]}")
         
-        logger.info(f"✅ Botones enviados correctamente a {numero_destino}")
-        logger.debug(f"Sent button message with instance={nombre_instancia} response={str(response)[:200]}")
+#         logger.info(f"✅ Botones enviados correctamente a {numero_destino}")
+#         logger.debug(f"Sent button message with instance={nombre_instancia} response={str(response)[:200]}")
         
-        return response
+#         return response
             
-    except Exception as e:
-        logger.error(f"🔴 Exception when sending button message with instance {nombre_instancia}: {e}")
-        return {"status": "failed", "error": str(e)}
+#     except Exception as e:
+#         logger.error(f"🔴 Exception when sending button message with instance {nombre_instancia}: {e}")
+#         return {"status": "failed", "error": str(e)}
 
 
-def enviar_texto_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
-    """Envía un mensaje a través del cliente de Evolution API.
-    """
-    logger.debug(f"Enviando mensaje a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
+# def enviar_texto_whatsapp(numero_destino: str, mensaje, nombre_instancia: str = None):
+#     """Envía un mensaje a través del cliente de Evolution API.
+#     """
+#     logger.debug(f"Enviando mensaje a WhatsApp: {numero_destino} - {str(mensaje)[:50]}...")
 
-    try:
-        endpoint = f"message/sendText/{nombre_instancia}"
+#     try:
+#         endpoint = f"message/sendText/{nombre_instancia}"
         
-        payload = {
-            # Evolution requiere el formato de número internacional sin el '+'
-            "number": f"{numero_destino}", 
-            "text": mensaje,
-            "options": {
-                "presence": "composing" # Muestra "Escribiendo..." en el celular del usuario
-            }
-        }
+#         payload = {
+#             # Evolution requiere el formato de número internacional sin el '+'
+#             "number": f"{numero_destino}", 
+#             "text": mensaje,
+#             "options": {
+#                 "presence": "composing" # Muestra "Escribiendo..." en el celular del usuario
+#             }
+#         }
     
-        response = client.post(endpoint, data=payload)
+#         response = client.post(endpoint, data=payload)
         
-        if not response:
-            logger.error(f"❌ Evolution client returned empty response")
-            return {"status": "failed", "error": "Empty response from Evolution API"}
+#         if not response:
+#             logger.error(f"❌ Evolution client returned empty response")
+#             return {"status": "failed", "error": "Empty response from Evolution API"}
         
-        logger.debug(f"Sent: with instance={nombre_instancia} response={str(response)[:200]}")
+#         logger.debug(f"Sent: with instance={nombre_instancia} response={str(response)[:200]}")
             
-        client_id = numero_destino.split('@')[0] if numero_destino else "unknown"
-        msg = f"[SND -> EVO] 📤 ID: {client_id} - MSG: {str(mensaje)[:100]}..."
-        generar_resumen_auditoria(nombre_instancia, msg)
+#         client_id = numero_destino.split('@')[0] if numero_destino else "unknown"
+#         msg = f"[SND -> EVO] 📤 ID: {client_id} - MSG: {str(mensaje)[:100]}..."
+#         generar_resumen_auditoria(nombre_instancia, msg)
 
-        # Verificar si la respuesta indica éxito
-        if isinstance(response, dict) and response.get("key"):
-            # Respuesta exitosa con message key
-            return response
-        else:
-            logger.error(f"❌ Evolution API error: response={response}")
-            return {"status": "failed", "error": "Evolution API error", "response": response}
+#         # Verificar si la respuesta indica éxito
+#         if isinstance(response, dict) and response.get("key"):
+#             # Respuesta exitosa con message key
+#             return response
+#         else:
+#             logger.error(f"❌ Evolution API error: response={response}")
+#             return {"status": "failed", "error": "Evolution API error", "response": response}
             
-    except Exception as e:
-        logger.error(f"🔴 Exception when sending with instance {nombre_instancia}: {e}")
-        return {"status": "failed", "error": str(e)}
+#     except Exception as e:
+#         logger.error(f"🔴 Exception when sending with instance {nombre_instancia}: {e}")
+#         return {"status": "failed", "error": str(e)}
 
 
-def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, client_name: str = "", ttl_minutos: int = 60) -> str:
-    """Procesa un mensaje usando LangGraph y devuelve el resultado como texto"""
-    try:
-        # 1. Datos obligatorios      
-        if not user_id or not business_id or not mensaje:
-            logger.error("❌ Faltan IDs o mensaje en adaptar_procesar_mensaje")
-            return None # Retorna None o un string vacío para que el worker sepa que falló
+# def adaptar_procesar_mensaje(business_id: str, user_id: str, mensaje: str, client_name: str = "", ttl_minutos: int = 60) -> str:
+#     """Procesa un mensaje usando LangGraph y devuelve el resultado como texto"""
+#     try:
+#         # 1. Datos obligatorios      
+#         if not user_id or not business_id or not mensaje:
+#             logger.error("❌ Faltan IDs o mensaje en adaptar_procesar_mensaje")
+#             return None # Retorna None o un string vacío para que el worker sepa que falló
 
-        # 2. Crear Thread ID Único (Aislamiento de Memoria)
-        # Esto asegura que Postgres guarde la conversación en un "cajón" único
-        thread_id = f"{business_id}:{user_id}"
+#         # 2. Crear Thread ID Único (Aislamiento de Memoria)
+#         # Esto asegura que Postgres guarde la conversación en un "cajón" único
+#         thread_id = f"{business_id}:{user_id}"
         
-        # 3. Configuración para LangGraph
-        # Pasamos dentro de 'configurable' toda la info de la conversación para que el nodo lo pueda leer
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "business_id": business_id,
-                "client_name": client_name,
-                "ttl_minutos": ttl_minutos
-            },
-            "recursion_limit": 15
-        }
+#         # 3. Configuración para LangGraph
+#         # Pasamos dentro de 'configurable' toda la info de la conversación para que el nodo lo pueda leer
+#         config = {
+#             "configurable": {
+#                 "thread_id": thread_id,
+#                 "business_id": business_id,
+#                 "client_name": client_name,
+#                 "ttl_minutos": ttl_minutos
+#             },
+#             "recursion_limit": 15
+#         }
 
-        # 2. LLAMADA LIMPIA A LA FUNCIÓN
-        logger.debug(f"Procesando mensaje para thread_id={thread_id}")
+#         # 2. LLAMADA LIMPIA A LA FUNCIÓN
+#         logger.debug(f"Procesando mensaje para thread_id={thread_id}")
 
-        resultado = procesar_mensaje(mensaje, config)     
+#         resultado = procesar_mensaje(mensaje, config)     
 
-        response = resultado.get("response")
-        status = resultado.get("status")
+#         response = resultado.get("response")
+#         status = resultado.get("status")
 
-        logger.debug(f"Respuesta recibida para {thread_id}: status={status}, response={str(response)[:50]}")
+#         logger.debug(f"Respuesta recibida para {thread_id}: status={status}, response={str(response)[:50]}")
 
-        if status == "COMPLETED" or status == "ERROR":
-            logger.success(f"✅ Respuesta generada para {thread_id}: {str(response)[:50]}")
-            return response
-        elif status == "PAUSED":
-            logger.warning(f"⏸️ Bot pausado para {thread_id}. No se generará respuesta.")
-            return ""  # Retornamos cadena vacía para indicar que no se debe enviar nada al cliente
-        else:
-            logger.warning(f"⚠️ Respuesta desconocida con status {status} para {thread_id}: {str(response)[:50]}")
-            return  "⚠️ En este momento no puedo procesar su solicitud."
+#         if status == "COMPLETED" or status == "ERROR":
+#             logger.success(f"✅ Respuesta generada para {thread_id}: {str(response)[:50]}")
+#             return response
+#         elif status == "PAUSED":
+#             logger.warning(f"⏸️ Bot pausado para {thread_id}. No se generará respuesta.")
+#             return ""  # Retornamos cadena vacía para indicar que no se debe enviar nada al cliente
+#         else:
+#             logger.warning(f"⚠️ Respuesta desconocida con status {status} para {thread_id}: {str(response)[:50]}")
+#             return  "⚠️ En este momento no puedo procesar su solicitud."
 
-        return response
+#         return response
 
-    except Exception as e:
-        logger.error(f"🔴 Error: {e}") 
-        return  "No se pudo procesar su solicitud."
+#     except Exception as e:
+#         logger.error(f"🔴 Error: {e}") 
+#         return  "No se pudo procesar su solicitud."
 
 
-def procesar_y_responder_evoapi(business_id, user_id, mensaje, push_name, ttl_minutos):
-    """
-    Función que corre en background:
-    1. Llama al Agente (Lento)
-    2. Envía la respuesta por WhatsApp (I/O)
-    """
-    try:    
-        # 1. Proceso Lento (IA)
-        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name, ttl_minutos=ttl_minutos)
+# def procesar_y_responder_evoapi(business_id, user_id, mensaje, push_name, ttl_minutos):
+#     """
+#     Función que corre en background:
+#     1. Llama al Agente (Lento)
+#     2. Envía la respuesta por WhatsApp (I/O)
+#     """
+#     try:    
+#         # 1. Proceso Lento (IA)
+#         respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=push_name, ttl_minutos=ttl_minutos)
         
-        # 2. Envío de respuesta
-        if respuesta_ia:
-            logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
-            enviar_texto_whatsapp(user_id, respuesta_ia, business_id)
+#         # 2. Envío de respuesta
+#         if respuesta_ia:
+#             logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
+#             enviar_texto_whatsapp(user_id, respuesta_ia, business_id)
 
-            # # Cargar el base64
-            # with open('documento_prueba_base64.txt', 'r') as f:
-            #     base64_pdf = ''.join([line for line in f if not line.startswith('#')]).strip()
+#             # # Cargar el base64
+#             # with open('documento_prueba_base64.txt', 'r') as f:
+#             #     base64_pdf = ''.join([line for line in f if not line.startswith('#')]).strip()
 
-            # # Usar la función actualizada
-            # from app import enviar_documento_whatsapp
+#             # # Usar la función actualizada
+#             # from app import enviar_documento_whatsapp
 
-            # enviar_documento_whatsapp(
-            #     "5491131376731",          # Tu número
-            #     base64_pdf,               # El base64 del PDF
-            #     "cliente2",               # Tu instancia
-            #     "documento_prueba.pdf",   # Nombre del archivo
-            #     "📄 Documento de prueba"  # Caption opcional
-            # )
-
-
-        else:
-            logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
-            #respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
-            #enviar_texto_whatsapp(user_id, respuesta_ia, business_id)
-
-    except Exception as e:
-        logger.error(f"🔴 Error en worker background para {user_id}: {e}")
+#             # enviar_documento_whatsapp(
+#             #     "5491131376731",          # Tu número
+#             #     base64_pdf,               # El base64 del PDF
+#             #     "cliente2",               # Tu instancia
+#             #     "documento_prueba.pdf",   # Nombre del archivo
+#             #     "📄 Documento de prueba"  # Caption opcional
+#             # )
 
 
-def worker_procesar_imagen(business_id, user_id, msg_id, mensaje, push_name):
-    """
-    Procesa imágenes enviadas por WhatsApp:
-    1. Descarga la imagen desde Evolution API
-    2. Analiza la imagen con AI multimodal
-    3. Responde al usuario con el análisis
-    """
-    try:
-        logger.debug(f"[IMAGE] Procesando imagen para {user_id}, instance={business_id}")
-        telefono = user_id.split("@")[0]
+#         else:
+#             logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
+#             #respuesta_ia = "Lo siento, no pude generar una respuesta en este momento."
+#             #enviar_texto_whatsapp(user_id, respuesta_ia, business_id)
+
+#     except Exception as e:
+#         logger.error(f"🔴 Error en worker background para {user_id}: {e}")
+
+
+# def worker_procesar_imagen(business_id, user_id, msg_id, mensaje, push_name):
+#     """
+#         Procesa imágenes enviadas por WhatsApp:
+#         1. Descarga la imagen desde Evolution API
+#         2. Analiza la imagen con AI multimodal
+#         3. Responde al usuario con el análisis
+#     """
+#     try:
+#         logger.debug(f"[IMAGE] Procesando imagen para {user_id}, instance={business_id}")
+#         telefono = user_id.split("@")[0]
         
-        # Usar el cliente evolutionapi para obtener la imagen en base64
-        endpoint = f"chat/getBase64FromMediaMessage/{business_id}"
-        payload_media = {
-            "message": {
-                "key": mensaje.get("key"),
-                "message": mensaje.get("message")
-            },
-            "convertToMp4": False
-        }
+#         # Usar el cliente evolutionapi para obtener la imagen en base64
+#         endpoint = f"chat/getBase64FromMediaMessage/{business_id}"
+#         payload_media = {
+#             "message": {
+#                 "key": mensaje.get("key"),
+#                 "message": mensaje.get("message")
+#             },
+#             "convertToMp4": False
+#         }
         
-        logger.debug(f"[IMAGE] Solicitando descarga de imagen usando evolutionapi client...")
+#         logger.debug(f"[IMAGE] Solicitando descarga de imagen usando evolutionapi client...")
         
-        try:
-            response = client.post(endpoint, data=payload_media)
+#         try:
+#             response = client.post(endpoint, data=payload_media)
             
-            if not response or not isinstance(response, dict):
-                logger.error(f"❌ [IMAGE] Respuesta inválida del cliente: {response}")
-                msg = "Disculpa, tuve problemas para procesar tu imagen. ¿Podrías describir qué necesitas? 📝"
-                enviar_texto_whatsapp(user_id, msg, business_id)
-                return
+#             if not response or not isinstance(response, dict):
+#                 logger.error(f"❌ [IMAGE] Respuesta inválida del cliente: {response}")
+#                 msg = "Disculpa, tuve problemas para procesar tu imagen. ¿Podrías describir qué necesitas? 📝"
+#                 enviar_texto_whatsapp(user_id, msg, business_id)
+#                 return
             
-            base64_image = response.get("base64")
+#             base64_image = response.get("base64")
             
-            if not base64_image:
-                logger.error(f"❌ [IMAGE] No se recibió base64 en la respuesta: {response}")
-                msg = "Disculpa, no pude procesar tu imagen. ¿Podrías describir qué necesitas? 📝"
-                enviar_texto_whatsapp(user_id, msg, business_id)
-                return
+#             if not base64_image:
+#                 logger.error(f"❌ [IMAGE] No se recibió base64 en la respuesta: {response}")
+#                 msg = "Disculpa, no pude procesar tu imagen. ¿Podrías describir qué necesitas? 📝"
+#                 enviar_texto_whatsapp(user_id, msg, business_id)
+#                 return
             
-            # Decodificar el base64 a bytes
-            image_buffer = base64.b64decode(base64_image)
-            logger.info(f"[IMAGE] Imagen descargada: {len(image_buffer)} bytes")
+#             # Decodificar el base64 a bytes
+#             image_buffer = base64.b64decode(base64_image)
+#             logger.info(f"[IMAGE] Imagen descargada: {len(image_buffer)} bytes")
             
-            # Extraer caption si existe
-            caption = mensaje.get("message", {}).get("imageMessage", {}).get("caption")
+#             # Extraer caption si existe
+#             caption = mensaje.get("message", {}).get("imageMessage", {}).get("caption")
             
-            # Analizar la imagen con AI
-            thread_id = f"{business_id}:{user_id}"
-            analisis = analizar_imagen_con_ai(image_buffer, thread_id, caption)
+#             # Analizar la imagen con AI
+#             thread_id = f"{business_id}:{user_id}"
+#             analisis = analizar_imagen_con_ai(image_buffer, thread_id, caption)
             
-            if analisis:
-                msg = f"[RCV <- EVO] 🖼️ ID: {telefono} - IMG: {caption[:50] if caption else 'sin texto'}"
-                generar_resumen_auditoria(business_id, msg)
+#             if analisis:
+#                 msg = f"[RCV <- EVO] 🖼️ ID: {telefono} - IMG: {caption[:50] if caption else 'sin texto'}"
+#                 generar_resumen_auditoria(business_id, msg)
                 
-                # Enviar el análisis como respuesta
-                respuesta = f"📸 He analizado tu imagen:\n\n{analisis}"
-                if caption:
-                    respuesta = f"📸 Vi tu imagen y el texto '{caption}'.\n\n{analisis}"
+#                 # Enviar el análisis como respuesta
+#                 respuesta = f"📸 He analizado tu imagen:\n\n{analisis}"
+#                 if caption:
+#                     respuesta = f"📸 Vi tu imagen y el texto '{caption}'.\n\n{analisis}"
                 
-                enviar_texto_whatsapp(user_id, respuesta, business_id)
-            else:
-                msg = "Disculpa, no pude analizar tu imagen. ¿Podrías describir qué necesitas? 📝"
-                enviar_texto_whatsapp(user_id, msg, business_id)
+#                 enviar_texto_whatsapp(user_id, respuesta, business_id)
+#             else:
+#                 msg = "Disculpa, no pude analizar tu imagen. ¿Podrías describir qué necesitas? 📝"
+#                 enviar_texto_whatsapp(user_id, msg, business_id)
                 
-        except Exception as api_error:
-            logger.error(f"❌ [IMAGE] Error llamando API Evolution: {api_error}")
-            msg = "Disculpa, tuve problemas procesando tu imagen. ¿Podrías describir qué necesitas? 📝"
-            enviar_texto_whatsapp(user_id, msg, business_id)
+#         except Exception as api_error:
+#             logger.error(f"❌ [IMAGE] Error llamando API Evolution: {api_error}")
+#             msg = "Disculpa, tuve problemas procesando tu imagen. ¿Podrías describir qué necesitas? 📝"
+#             enviar_texto_whatsapp(user_id, msg, business_id)
 
-    except Exception as e:
-        logger.error(f"🔴 Error procesando imagen background: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            msg = "Disculpa, tuve un error procesando tu imagen. ¿Podrías escribir tu consulta? 📝"
-            enviar_texto_whatsapp(user_id, msg, business_id)
-        except:
-            pass  # Evitar errores en cascada
+#     except Exception as e:
+#         logger.error(f"🔴 Error procesando imagen background: {e}")
+#         import traceback
+#         logger.error(traceback.format_exc())
+#         try:
+#             msg = "Disculpa, tuve un error procesando tu imagen. ¿Podrías escribir tu consulta? 📝"
+#             enviar_texto_whatsapp(user_id, msg, business_id)
+#         except:
+#             pass  # Evitar errores en cascada
 
-def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, ttl_minutos):
-    """Procesa audios enviados por Evolution API - WhatsApp SOLO Baileys:
-    1. Descarga el audio desde Evolution API
-    2. Decodifica el audio de base64 a bytes
-    3. Transcribe el audio a texto
-    4. Procesa el texto con IA
-    """
-    try:
-        logger.debug(f"[AUDIO] Procesando audio para {user_id}, instance={business_id}")
-        telefono = user_id.split("@")[0]    
-        # Usar el cliente evolutionapi para obtener el audio en base64
-        # https://doc.evolution-api.com/v2/en/endpoints/messages#get-media
-        endpoint = f"chat/getBase64FromMediaMessage/{business_id}"
-        # Evolution necesita el objeto data completo (key + message + metadata)
-        payload_media = {
-            "message": {
-                "key": mensaje.get("key"),
-                "message": mensaje.get("message")
-            },
-            "convertToMp4": False  # Mantener formato original (ogg opus)
-        }
+# def worker_procesar_audio(business_id, user_id, msg_id, mensaje, push_name, ttl_minutos):
+#     """Procesa audios enviados por Evolution API - WhatsApp SOLO Baileys:
+#     1. Descarga el audio desde Evolution API
+#     2. Decodifica el audio de base64 a bytes
+#     3. Transcribe el audio a texto
+#     4. Procesa el texto con IA
+#     """
+#     try:
+#         logger.debug(f"[AUDIO] Procesando audio para {user_id}, instance={business_id}")
+#         telefono = user_id.split("@")[0]    
+#         # Usar el cliente evolutionapi para obtener el audio en base64
+#         # https://doc.evolution-api.com/v2/en/endpoints/messages#get-media
+#         endpoint = f"chat/getBase64FromMediaMessage/{business_id}"
+#         # Evolution necesita el objeto data completo (key + message + metadata)
+#         payload_media = {
+#             "message": {
+#                 "key": mensaje.get("key"),
+#                 "message": mensaje.get("message")
+#             },
+#             "convertToMp4": False  # Mantener formato original (ogg opus)
+#         }
         
-        logger.debug(f"[AUDIO] Solicitando descarga de media usando evolutionapi client...")
+#         logger.debug(f"[AUDIO] Solicitando descarga de media usando evolutionapi client...")
         
-        try:
-            response = client.post(endpoint, data=payload_media)
+#         try:
+#             response = client.post(endpoint, data=payload_media)
             
-            if not response or not isinstance(response, dict):
-                logger.error(f"❌ [AUDIO] Respuesta inválida del cliente: {response}")
-                msg = "Disculpa, tuve problemas para procesar tu audio. ¿Podrías escribirlo? 📝"
-                enviar_texto_whatsapp(user_id, msg, business_id)
-                return
+#             if not response or not isinstance(response, dict):
+#                 logger.error(f"❌ [AUDIO] Respuesta inválida del cliente: {response}")
+#                 msg = "Disculpa, tuve problemas para procesar tu audio. ¿Podrías escribirlo? 📝"
+#                 enviar_texto_whatsapp(user_id, msg, business_id)
+#                 return
             
-            base64_audio = response.get("base64")
+#             base64_audio = response.get("base64")
             
-            if not base64_audio:
-                logger.error(f"❌ [AUDIO] No se recibió base64 en la respuesta: {response}")
-                msg = "Disculpa, no pude procesar tu audio. ¿Podrías escribirlo? 📝"
-                enviar_texto_whatsapp(user_id, msg, business_id)
-                return
+#             if not base64_audio:
+#                 logger.error(f"❌ [AUDIO] No se recibió base64 en la respuesta: {response}")
+#                 msg = "Disculpa, no pude procesar tu audio. ¿Podrías escribirlo? 📝"
+#                 enviar_texto_whatsapp(user_id, msg, business_id)
+#                 return
             
-            # Decodificar el base64 a bytes PRIMERO
-            audio_buffer = base64.b64decode(base64_audio)
-            logger.info(f"[AUDIO] Audio descargado: {len(audio_buffer)} bytes")
+#             # Decodificar el base64 a bytes PRIMERO
+#             audio_buffer = base64.b64decode(base64_audio)
+#             logger.info(f"[AUDIO] Audio descargado: {len(audio_buffer)} bytes")
 
-            # 1. Transcribir (Lento)
-            texto_transcrito = transcribir_audio(audio_buffer, thread_id=f"{business_id}:{user_id}")
+#             # 1. Transcribir (Lento)
+#             texto_transcrito = transcribir_audio(audio_buffer, thread_id=f"{business_id}:{user_id}")
             
-            if texto_transcrito:
-                # logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50].replace('\n', ' ')}")
-                msg = f"[RCV <- EVO] 🔊 ID: {telefono} - MSG: {texto_transcrito[:100].replace('\n', ' ')}"
-                generar_resumen_auditoria(business_id, msg)
-                # 2. Reutilizamos el worker de texto existente para procesar con IA
-                procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, ttl_minutos)
-            else:
-                msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
-                enviar_texto_whatsapp(user_id, msg, business_id)
+#             if texto_transcrito:
+#                 # logger.info(f"🗣️ Audio transcrito: {texto_transcrito[:50].replace('\n', ' ')}")
+#                 msg = f"[RCV <- EVO] 🔊 ID: {telefono} - MSG: {texto_transcrito[:100].replace('\n', ' ')}"
+#                 generar_resumen_auditoria(business_id, msg)
+#                 # 2. Reutilizamos el worker de texto existente para procesar con IA
+#                 procesar_y_responder_evoapi(business_id, user_id, texto_transcrito, push_name, ttl_minutos)
+#             else:
+#                 msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
+#                 enviar_texto_whatsapp(user_id, msg, business_id)
                 
-        except Exception as api_error:
-            logger.error(f"❌ [AUDIO] Error llamando API Evolution: {api_error}")
-            msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
-            enviar_texto_whatsapp(user_id, msg, business_id)
+#         except Exception as api_error:
+#             logger.error(f"❌ [AUDIO] Error llamando API Evolution: {api_error}")
+#             msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
+#             enviar_texto_whatsapp(user_id, msg, business_id)
 
-    except Exception as e:
-        logger.error(f"🔴 Error procesando audio background: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
-            enviar_texto_whatsapp(user_id, msg, business_id)
-        except:
-            pass  # Evitar errores en cascada
+#     except Exception as e:
+#         logger.error(f"🔴 Error procesando audio background: {e}")
+#         import traceback
+#         logger.error(traceback.format_exc())
+#         try:
+#             msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
+#             enviar_texto_whatsapp(user_id, msg, business_id)
+#         except:
+#             pass  # Evitar errores en cascada
 
 ################################################################################################
 ################################### Funciones de Chatwoot ######################################
 ################################################################################################
-def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, client_id, business_id):
-    """
-    Envía la respuesta generada por LangGraph de vuelta a la conversación en Chatwoot.
-    """
-    CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://sischat.sisnova.com.ar/")
-    CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "your_chatwoot_api_token_here")
+# def enviar_mensaje_chatwoot(account_id, conversation_id, texto_respuesta, client_id, business_id):
+#     """
+#     Envía la respuesta generada por LangGraph de vuelta a la conversación en Chatwoot.
+#     """
+#     CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://sischat.sisnova.com.ar/")
+#     CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "your_chatwoot_api_token_here")
 
-    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{account_id}/conversations/{conversation_id}/messages"
+#     url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{account_id}/conversations/{conversation_id}/messages"
     
-    headers = {
-        "api_access_token": CHATWOOT_API_TOKEN,
-        "Content-Type": "application/json"
-    }
+#     headers = {
+#         "api_access_token": CHATWOOT_API_TOKEN,
+#         "Content-Type": "application/json"
+#     }
     
-    payload = {
-        "content": texto_respuesta,
-        "message_type": "outgoing",
-        "private": False # Si es True, es una nota interna que el cliente no ve
-    }
+#     payload = {
+#         "content": texto_respuesta,
+#         "message_type": "outgoing",
+#         "private": False # Si es True, es una nota interna que el cliente no ve
+#     }
     
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        logger.info(f"✅ Respuesta enviada a Chatwoot (Conv ID: {conversation_id})")
+#     try:
+#         response = requests.post(url, json=payload, headers=headers, timeout=10)
+#         response.raise_for_status()
+#         logger.info(f"✅ Respuesta enviada a Chatwoot (Conv ID: {conversation_id})")
 
-        msg = f"[SND -> CWT] 📤 ID: {client_id} - MSG: {texto_respuesta[:100]}..."
-        generar_resumen_auditoria(business_id, msg)
+#         msg = f"[SND -> CWT] 📤 ID: {client_id} - MSG: {texto_respuesta[:100]}..."
+#         generar_resumen_auditoria(business_id, msg)
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"🔴 Error enviando a Chatwoot: {e}")
-
-
-def worker_procesar_audio_chatwoot(business_id, user_id, audio_url, conversation_id, account_id, client_name, client_id, ttl_minutos):
-    """
-    Procesa una nota de voz recibida vía Chatwoot:
-    1. Descarga el audio desde la URL de active_storage de Chatwoot (requiere token)
-    2. Transcribe el audio a texto con Whisper
-    3. Procesa el texto con IA y responde en Chatwoot
-    """
-    try:
-        logger.debug(f"[AUDIO-CWT] Procesando audio para {user_id}, conv={conversation_id}")
-
-        CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://sischat.sisnova.com.ar/")
-        CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
-
-        # Descargar el audio desde Chatwoot active_storage (autenticado con token)
-        headers = {"api_access_token": CHATWOOT_API_TOKEN}
-        logger.debug(f"[AUDIO-CWT] Descargando audio desde: {audio_url[:80]}...")
-
-        resp = requests.get(audio_url, headers=headers, timeout=30)
-        resp.raise_for_status()
-        audio_buffer = resp.content
-        logger.info(f"[AUDIO-CWT] Audio descargado: {len(audio_buffer)} bytes")
-
-        # Detectar formato del audio por magic bytes
-        def detectar_formato_audio(buf: bytes) -> str:
-            if buf[:4] == b'OggS':
-                return 'ogg'
-            if len(buf) >= 8 and buf[4:8] == b'ftyp':
-                return 'mp4'
-            if buf[:3] == b'ID3' or (len(buf) >= 2 and buf[0] == 0xFF and buf[1] & 0xE0 == 0xE0):
-                return 'mp3'
-            if buf[:4] == b'RIFF' and buf[8:12] == b'WAVE':
-                return 'wav'
-            # Fallback: intentar inferir desde Content-Type
-            ct = resp.headers.get('Content-Type', '')
-            if 'mp4' in ct or 'aac' in ct or 'm4a' in ct:
-                return 'mp4'
-            if 'mpeg' in ct or 'mp3' in ct:
-                return 'mp3'
-            if 'ogg' in ct:
-                return 'ogg'
-            if 'wav' in ct:
-                return 'wav'
-            return 'ogg'  # default legacy
-
-        audio_format = detectar_formato_audio(audio_buffer)
-        logger.debug(f"[AUDIO-CWT] Formato detectado: {audio_format} (Content-Type: {resp.headers.get('Content-Type', 'desconocido')})")
-
-        # Transcribir con Whisper
-        thread_id = f"{business_id}:{user_id}"
-        texto_transcrito = transcribir_audio(audio_buffer, thread_id=thread_id, audio_format=audio_format)
-
-        if texto_transcrito:
-            msg = f"[RCV <- CWT] 🔊 ID: {client_id} - MSG: {texto_transcrito[:100].replace(chr(10), ' ')}"
-            generar_resumen_auditoria(business_id, msg)
-            # Procesar con IA y responder en Chatwoot
-            procesar_y_responder_chatwoot(
-                business_id, user_id, texto_transcrito,
-                conversation_id, account_id, client_name, client_id, ttl_minutos
-            )
-        else:
-            msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
-            enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
-
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"❌ [AUDIO-CWT] Error HTTP descargando audio: {e}")
-        msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
-        enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
-    except Exception as e:
-        logger.error(f"🔴 [AUDIO-CWT] Error procesando audio: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
-            enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
-        except:
-            pass
+#     except requests.exceptions.RequestException as e:
+#         logger.error(f"🔴 Error enviando a Chatwoot: {e}")
 
 
-def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", client_id: str = "", ttl_minutos: int = 60):
-    """Función que corre en background para procesar mensajes de Chatwoot y responder"""
+# def worker_procesar_audio_chatwoot(business_id, user_id, audio_url, conversation_id, account_id, client_name, client_id, ttl_minutos):
+#     """
+#     Procesa una nota de voz recibida vía Chatwoot:
+#     1. Descarga el audio desde la URL de active_storage de Chatwoot (requiere token)
+#     2. Transcribe el audio a texto con Whisper
+#     3. Procesa el texto con IA y responde en Chatwoot
+#     """
+#     try:
+#         logger.debug(f"[AUDIO-CWT] Procesando audio para {user_id}, conv={conversation_id}")
 
-    try:       
-        logger.debug(f"Procesando mensaje para Chatwoot user_id={user_id} (Conv ID: {conversation_id})")
+#         CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://sischat.sisnova.com.ar/")
+#         CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 
-        # 1. Proceso Lento (IA)
-        respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=client_name, ttl_minutos=ttl_minutos)
+#         # Descargar el audio desde Chatwoot active_storage (autenticado con token)
+#         headers = {"api_access_token": CHATWOOT_API_TOKEN}
+#         logger.debug(f"[AUDIO-CWT] Descargando audio desde: {audio_url[:80]}...")
+
+#         resp = requests.get(audio_url, headers=headers, timeout=30)
+#         resp.raise_for_status()
+#         audio_buffer = resp.content
+#         logger.info(f"[AUDIO-CWT] Audio descargado: {len(audio_buffer)} bytes")
+
+#         # Detectar formato del audio por magic bytes
+#         def detectar_formato_audio(buf: bytes) -> str:
+#             if buf[:4] == b'OggS':
+#                 return 'ogg'
+#             if len(buf) >= 8 and buf[4:8] == b'ftyp':
+#                 return 'mp4'
+#             if buf[:3] == b'ID3' or (len(buf) >= 2 and buf[0] == 0xFF and buf[1] & 0xE0 == 0xE0):
+#                 return 'mp3'
+#             if buf[:4] == b'RIFF' and buf[8:12] == b'WAVE':
+#                 return 'wav'
+#             # Fallback: intentar inferir desde Content-Type
+#             ct = resp.headers.get('Content-Type', '')
+#             if 'mp4' in ct or 'aac' in ct or 'm4a' in ct:
+#                 return 'mp4'
+#             if 'mpeg' in ct or 'mp3' in ct:
+#                 return 'mp3'
+#             if 'ogg' in ct:
+#                 return 'ogg'
+#             if 'wav' in ct:
+#                 return 'wav'
+#             return 'ogg'  # default legacy
+
+#         audio_format = detectar_formato_audio(audio_buffer)
+#         logger.debug(f"[AUDIO-CWT] Formato detectado: {audio_format} (Content-Type: {resp.headers.get('Content-Type', 'desconocido')})")
+
+#         # Transcribir con Whisper
+#         thread_id = f"{business_id}:{user_id}"
+#         texto_transcrito = transcribir_audio(audio_buffer, thread_id=thread_id, audio_format=audio_format)
+
+#         if texto_transcrito:
+#             msg = f"[RCV <- CWT] 🔊 ID: {client_id} - MSG: {texto_transcrito[:100].replace(chr(10), ' ')}"
+#             generar_resumen_auditoria(business_id, msg)
+#             # Procesar con IA y responder en Chatwoot
+#             procesar_y_responder_chatwoot(
+#                 business_id, user_id, texto_transcrito,
+#                 conversation_id, account_id, client_name, client_id, ttl_minutos
+#             )
+#         else:
+#             msg = "Disculpa, no pude escuchar bien el audio. ¿Podrías escribirlo? 📝"
+#             enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
+
+#     except requests.exceptions.HTTPError as e:
+#         logger.error(f"❌ [AUDIO-CWT] Error HTTP descargando audio: {e}")
+#         msg = "Disculpa, tuve problemas descargando tu audio. ¿Podrías escribirlo? 📝"
+#         enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
+#     except Exception as e:
+#         logger.error(f"🔴 [AUDIO-CWT] Error procesando audio: {e}")
+#         import traceback
+#         logger.error(traceback.format_exc())
+#         try:
+#             msg = "Disculpa, tuve un error procesando tu audio. ¿Podrías escribirlo? 📝"
+#             enviar_mensaje_chatwoot(account_id, conversation_id, msg, client_id, business_id)
+#         except:
+#             pass
+
+
+# def procesar_y_responder_chatwoot(business_id, user_id, mensaje, conversation_id, account_id, client_name: str = "", client_id: str = "", ttl_minutos: int = 60):
+#     """Función que corre en background para procesar mensajes de Chatwoot y responder"""
+
+#     try:       
+#         logger.debug(f"Procesando mensaje para Chatwoot user_id={user_id} (Conv ID: {conversation_id})")
+
+#         # 1. Proceso Lento (IA)
+#         respuesta_ia = adaptar_procesar_mensaje(business_id, user_id, mensaje, client_name=client_name, ttl_minutos=ttl_minutos)
             
-        # 2. Envío de respuesta
-        if respuesta_ia:
-            logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
-            enviar_mensaje_chatwoot(account_id, conversation_id, respuesta_ia, client_id, business_id)
-        else:
-            logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
+#         # 2. Envío de respuesta
+#         if respuesta_ia:
+#             logger.info(f"🤖 IA terminó para {user_id}. Enviando respuesta...")
+#             enviar_mensaje_chatwoot(account_id, conversation_id, respuesta_ia, client_id, business_id)
+#         else:
+#             logger.warning(f"⚠️ IA no generó respuesta para {user_id}")
 
-    except Exception as e:
-        logger.error(f"🔴 Error en procesar_y_responder_chatwoot para {user_id}: {e}")
+#     except Exception as e:
+#         logger.error(f"🔴 Error en procesar_y_responder_chatwoot para {user_id}: {e}")
 
 
-@app.route('/webhook/chatwoot', methods=['POST'])
-def webhook_chatwoot():
-    try:
-        data = request.json
-        #logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:200]}")
-        logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)}")
+# @app.route('/webhook/chatwoot', methods=['POST'])
+# def webhook_chatwoot():
+#     try:
+#         data = request.json
+#         #logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)[:200]}")
+#         logger.info(f"📨 Received Chatwoot webhook: {json.dumps(data)}")
 
-        # 1. Validar que el evento sea la creación de un mensaje
-        if data.get('event') != 'message_created':
-            logger.warning(f"⚠️ Evento ignorado: {data.get('event')}")
-            return jsonify({"status": "ignorado", "razon": "no es un mensaje"}), 200
+#         # 1. Validar que el evento sea la creación de un mensaje
+#         if data.get('event') != 'message_created':
+#             logger.warning(f"⚠️ Evento ignorado: {data.get('event')}")
+#             return jsonify({"status": "ignorado", "razon": "no es un mensaje"}), 200
 
-        # 2. Ignorar mensajes enviados por el bot o los agentes (evitar bucles infinitos)
-        if data.get('message_type') != 'incoming':
-            logger.warning(f"⚠️ Mensaje ignorado: message_type={data.get('message_type')}")
-            return jsonify({"status": "ignorado", "razon": "mensaje saliente"}), 200
+#         # 2. Ignorar mensajes enviados por el bot o los agentes (evitar bucles infinitos)
+#         if data.get('message_type') != 'incoming':
+#             logger.warning(f"⚠️ Mensaje ignorado: message_type={data.get('message_type')}")
+#             return jsonify({"status": "ignorado", "razon": "mensaje saliente"}), 200
         
-        # Chatwoot maneja estos estados: 'open' (humano), 'resolved' (cerrada), 'pending', 'bot'
-        estado_conversacion = data.get('conversation', {}).get('status')
-        conversation_id = data.get('conversation', {}).get('id')
+#         # Chatwoot maneja estos estados: 'open' (humano), 'resolved' (cerrada), 'pending', 'bot'
+#         estado_conversacion = data.get('conversation', {}).get('status')
+#         conversation_id = data.get('conversation', {}).get('id')
 
-        # Si la conversación está abierta (manejada por un humano), el bot hace silencio absoluto.
-        if estado_conversacion == 'open':
-            logger.info(f"🤫 Silencio. La conversación {conversation_id} está en manos de un humano.")
-            return jsonify({"status": "ignorado", "razon": "conversacion_abierta"}), 200
+#         # Si la conversación está abierta (manejada por un humano), el bot hace silencio absoluto.
+#         if estado_conversacion == 'open':
+#             logger.info(f"🤫 Silencio. La conversación {conversation_id} está en manos de un humano.")
+#             return jsonify({"status": "ignorado", "razon": "conversacion_abierta"}), 200
 
-        # 3. Extraer los datos clave del payload de Chatwoot
-        mensaje = data.get('content')
-        account_id = data.get('account', {}).get('id')
-        business_id = data.get('account', {}).get('name')
-        inbox_id = data.get('inbox', {}).get('id')    
-        client_name = data.get('sender', {}).get('name') 
-        channel = data.get('conversation', {}).get('channel')
-        user_id = ""
-        msg = ""
-        client_id = ""
+#         # 3. Extraer los datos clave del payload de Chatwoot
+#         mensaje = data.get('content')
+#         account_id = data.get('account', {}).get('id')
+#         business_id = data.get('account', {}).get('name')
+#         inbox_id = data.get('inbox', {}).get('id')    
+#         client_name = data.get('sender', {}).get('name') 
+#         channel = data.get('conversation', {}).get('channel')
+#         user_id = ""
+#         msg = ""
+#         client_id = ""
 
-        # Detectar si es una nota de voz (content=null + attachment con file_type='audio')
-        attachments = data.get('attachments') or []
-        audio_attachment    = next((a for a in attachments if a.get('file_type') == 'audio'), None)
-        # Nota: WhatsApp Business API envía tanto fotos como stickers como file_type="image"
-        # (incluyendo .webp para fotos reales). No es posible distinguirlos de forma confiable.
-        image_attachment    = next((a for a in attachments if a.get('file_type') == 'image'), None)
-        document_attachment = next((a for a in attachments if a.get('file_type') == 'file'), None)
-        contact_attachments = [a for a in attachments if a.get('file_type') == 'contact']
-        location_attachment = next((a for a in attachments if a.get('file_type') == 'location'), None)
+#         # Detectar si es una nota de voz (content=null + attachment con file_type='audio')
+#         attachments = data.get('attachments') or []
+#         audio_attachment    = next((a for a in attachments if a.get('file_type') == 'audio'), None)
+#         # Nota: WhatsApp Business API envía tanto fotos como stickers como file_type="image"
+#         # (incluyendo .webp para fotos reales). No es posible distinguirlos de forma confiable.
+#         image_attachment    = next((a for a in attachments if a.get('file_type') == 'image'), None)
+#         document_attachment = next((a for a in attachments if a.get('file_type') == 'file'), None)
+#         contact_attachments = [a for a in attachments if a.get('file_type') == 'contact']
+#         location_attachment = next((a for a in attachments if a.get('file_type') == 'location'), None)
 
-        # Determinar etiqueta del tipo de contenido para logs
-        tipo_contenido = (
-            '[audio]'      if audio_attachment else
-            '[imagen]'     if image_attachment else
-            '[documento]'  if document_attachment else
-            '[contacto]'   if contact_attachments else
-            '[ubicación]'  if location_attachment else
-            (mensaje or '[desconocido]')
-        )
+#         # Determinar etiqueta del tipo de contenido para logs
+#         tipo_contenido = (
+#             '[audio]'      if audio_attachment else
+#             '[imagen]'     if image_attachment else
+#             '[documento]'  if document_attachment else
+#             '[contacto]'   if contact_attachments else
+#             '[ubicación]'  if location_attachment else
+#             (mensaje or '[desconocido]')
+#         )
 
-        logger.debug(f"Extracted data - business_id: {business_id}, channel: {channel}, conversation_id: {conversation_id}, account_id: {account_id}, tipo={tipo_contenido}")
+#         logger.debug(f"Extracted data - business_id: {business_id}, channel: {channel}, conversation_id: {conversation_id}, account_id: {account_id}, tipo={tipo_contenido}")
         
-        # 4. Generar el user_id para LangGraph
-        if channel == "Channel::Instagram":
-            client_id = f"ig_{data.get('sender', {}).get('additional_attributes', {}).get('social_instagram_user_name')}"
-            user_id = f"{client_id}@{account_id}@{conversation_id}" if client_id else f"conv_{conversation_id}"
-            msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
+#         # 4. Generar el user_id para LangGraph
+#         if channel == "Channel::Instagram":
+#             client_id = f"ig_{data.get('sender', {}).get('additional_attributes', {}).get('social_instagram_user_name')}"
+#             user_id = f"{client_id}@{account_id}@{conversation_id}" if client_id else f"conv_{conversation_id}"
+#             msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
         
-        elif channel == "Channel::Whatsapp" or channel == "Channel::Api":
-            client_id = f"api_{str(data.get('sender', {}).get('phone_number'))}"
-            user_id = f"{client_id.replace('+', '')}@{account_id}@{conversation_id}" if client_id else f"conv_{conversation_id}"
-            msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
+#         elif channel == "Channel::Whatsapp" or channel == "Channel::Api":
+#             client_id = f"api_{str(data.get('sender', {}).get('phone_number'))}"
+#             user_id = f"{client_id.replace('+', '')}@{account_id}@{conversation_id}" if client_id else f"conv_{conversation_id}"
+#             msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
         
-        elif channel == "Channel::WebWidget":
-            client_id = f"web_{data.get('sender', {}).get('email') or 'unknown'}"
-            user_id = f"{client_id}@{account_id}@{conversation_id}"
-            msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
+#         elif channel == "Channel::WebWidget":
+#             client_id = f"web_{data.get('sender', {}).get('email') or 'unknown'}"
+#             user_id = f"{client_id}@{account_id}@{conversation_id}"
+#             msg = f"[RCV <- CWT] 📨 ID: {client_id} - MSG: {tipo_contenido[:100]}..."
         
-        generar_resumen_auditoria(business_id, msg)
+#         generar_resumen_auditoria(business_id, msg)
 
-        # 🛡️ DDoS check DESPUÉS de resolver user_id correctamente
-        if user_id and DDOS_PROTECTION_ENABLED and ddos_protection:
-            if mensaje:
-                puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id, mensaje)
-            else:
-                puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
-            if not puede_procesar:
-                logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
-                return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
+#         # 🛡️ DDoS check DESPUÉS de resolver user_id correctamente
+#         if user_id and DDOS_PROTECTION_ENABLED and ddos_protection:
+#             if mensaje:
+#                 puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id, mensaje)
+#             else:
+#                 puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
+#             if not puede_procesar:
+#                 logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
+#                 return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429
 
-        # 5. Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
-        info_negocio = ClienteConfig(business_id)
-        ttl_minutos = info_negocio.ttl_sesion_minutos or 60
-        audio_transcripcion = info_negocio.audio_transcripcion or True
+#         # 5. Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
+#         info_negocio = ClienteConfig(business_id)
+#         ttl_minutos = info_negocio.ttl_sesion_minutos or 60
+#         audio_transcripcion = info_negocio.audio_transcripcion or True
 
-        # 6. Delegar al ThreadPool según tipo de contenido
-        if audio_attachment and not mensaje:
-            # [AUDIO] Nota de voz
-            if audio_transcripcion:
-                logger.info(f"🔊 [CWT] Procesando nota de voz de {user_id}. Transcribiendo con IA...")
-                executor.submit(
-                    worker_procesar_audio_chatwoot,
-                    business_id, user_id,
-                    audio_attachment.get('data_url'),
-                    conversation_id, account_id,
-                    client_name, client_id, ttl_minutos
-                )
-            else:
-                logger.info(f"🔊 [CWT] Nota de voz recibida de {user_id}, transcripción deshabilitada.")
-                msg_resp = "Gracias por tu nota de voz. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
-                executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+#         # 6. Delegar al ThreadPool según tipo de contenido
+#         if audio_attachment and not mensaje:
+#             # [AUDIO] Nota de voz
+#             if audio_transcripcion:
+#                 logger.info(f"🔊 [CWT] Procesando nota de voz de {user_id}. Transcribiendo con IA...")
+#                 executor.submit(
+#                     worker_procesar_audio_chatwoot,
+#                     business_id, user_id,
+#                     audio_attachment.get('data_url'),
+#                     conversation_id, account_id,
+#                     client_name, client_id, ttl_minutos
+#                 )
+#             else:
+#                 logger.info(f"🔊 [CWT] Nota de voz recibida de {user_id}, transcripción deshabilitada.")
+#                 msg_resp = "Gracias por tu nota de voz. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+#                 executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
 
-        elif image_attachment and not mensaje:
-            # [IMAGEN] Sin caption → pedir descripción
-            logger.info(f"🖼️ [CWT] Imagen recibida de {user_id} (sin texto)")
-            msg_resp = "Gracias por la imagen. Para poder ayudarte mejor, ¿podrías describir qué necesitas? 📝"
-            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+#         elif image_attachment and not mensaje:
+#             # [IMAGEN] Sin caption → pedir descripción
+#             logger.info(f"🖼️ [CWT] Imagen recibida de {user_id} (sin texto)")
+#             msg_resp = "Gracias por la imagen. Para poder ayudarte mejor, ¿podrías describir qué necesitas? 📝"
+#             executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
 
-        elif document_attachment and not mensaje:
-            # [DOCUMENTO] Sin texto → pedir descripción
-            logger.info(f"📄 [CWT] Documento recibido de {user_id} (sin texto)")
-            msg_resp = "Gracias por el documento. Para poder ayudarte mejor, ¿podrías indicar qué necesitas con él? 📝"
-            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+#         elif document_attachment and not mensaje:
+#             # [DOCUMENTO] Sin texto → pedir descripción
+#             logger.info(f"📄 [CWT] Documento recibido de {user_id} (sin texto)")
+#             msg_resp = "Gracias por el documento. Para poder ayudarte mejor, ¿podrías indicar qué necesitas con él? 📝"
+#             executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
 
-        elif contact_attachments:
-            # [CONTACTO] Tarjeta de contacto compartida
-            contact_name = mensaje or '(sin nombre)'
-            phones = [a.get('fallback_title', '') for a in contact_attachments if a.get('fallback_title')]
-            phones_str = ', '.join(phones) if phones else '(sin teléfono)'
-            logger.info(f"👤 [CWT] Contacto compartido por {user_id} → Nombre: {contact_name} | Teléfonos: {phones_str}")
-            msg_resp = f"Recibí el contacto de *{contact_name}* ({phones_str}). ¿En qué puedo ayudarte con respecto a esta persona? 📋"
-            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+#         elif contact_attachments:
+#             # [CONTACTO] Tarjeta de contacto compartida
+#             contact_name = mensaje or '(sin nombre)'
+#             phones = [a.get('fallback_title', '') for a in contact_attachments if a.get('fallback_title')]
+#             phones_str = ', '.join(phones) if phones else '(sin teléfono)'
+#             logger.info(f"👤 [CWT] Contacto compartido por {user_id} → Nombre: {contact_name} | Teléfonos: {phones_str}")
+#             msg_resp = f"Recibí el contacto de *{contact_name}* ({phones_str}). ¿En qué puedo ayudarte con respecto a esta persona? 📋"
+#             executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
 
-        elif location_attachment:
-            # [UBICACIÓN] Coordenadas geográficas compartidas
-            lat  = location_attachment.get('coordinates_lat')
-            long = location_attachment.get('coordinates_long')
-            title = location_attachment.get('fallback_title') or ''
-            maps_url = f"https://www.google.com/maps?q={lat},{long}"
-            loc_info = f"lat={lat}, long={long}" + (f", título='{title}'" if title else '')
-            logger.info(f"📍 [CWT] Ubicación recibida de {user_id} → {loc_info} | Maps: {maps_url}")
-            msg_resp = f"Recibí tu ubicación 📍" + (f" (*{title}*)" if title else '') + f".\nPuedes verla aquí: {maps_url}\n¿En qué puedo ayudarte?"
-            executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
+#         elif location_attachment:
+#             # [UBICACIÓN] Coordenadas geográficas compartidas
+#             lat  = location_attachment.get('coordinates_lat')
+#             long = location_attachment.get('coordinates_long')
+#             title = location_attachment.get('fallback_title') or ''
+#             maps_url = f"https://www.google.com/maps?q={lat},{long}"
+#             loc_info = f"lat={lat}, long={long}" + (f", título='{title}'" if title else '')
+#             logger.info(f"📍 [CWT] Ubicación recibida de {user_id} → {loc_info} | Maps: {maps_url}")
+#             msg_resp = f"Recibí tu ubicación 📍" + (f" (*{title}*)" if title else '') + f".\nPuedes verla aquí: {maps_url}\n¿En qué puedo ayudarte?"
+#             executor.submit(enviar_mensaje_chatwoot, account_id, conversation_id, msg_resp, client_id, business_id)
 
-        elif mensaje:
-            # [TEXTO] Mensaje de texto normal (puede venir con o sin attachment adjunto)
-            executor.submit(
-                procesar_y_responder_chatwoot,
-                business_id,
-                user_id,
-                mensaje,
-                conversation_id,
-                account_id,
-                client_name,
-                client_id,
-                ttl_minutos
-            )
-        else:
-            logger.warning(f"⚠️ [CWT] Mensaje sin contenido reconocido para conv={conversation_id}, ignorando.")
+#         elif mensaje:
+#             # [TEXTO] Mensaje de texto normal (puede venir con o sin attachment adjunto)
+#             executor.submit(
+#                 procesar_y_responder_chatwoot,
+#                 business_id,
+#                 user_id,
+#                 mensaje,
+#                 conversation_id,
+#                 account_id,
+#                 client_name,
+#                 client_id,
+#                 ttl_minutos
+#             )
+#         else:
+#             logger.warning(f"⚠️ [CWT] Mensaje sin contenido reconocido para conv={conversation_id}, ignorando.")
 
-        return jsonify({"status": "recibido"}), 200
+#         return jsonify({"status": "recibido"}), 200
 
-    except Exception as e:
-        logger.error(f"🔴 Error en webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+#     except Exception as e:
+#         logger.error(f"🔴 Error en webhook: {e}")
+#         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@app.route('/webhook/evoapi', methods=['POST'])
-def webhook():
-    """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
+# @app.route('/webhook/evoapi', methods=['POST'])
+# def webhook():
+#     """Endpoint para recibir webhooks de Evolution API - CON CONCURRENCIA"""
 
-    try:
-        msg_id = "-"
-        payload = request.json
-        logger.info(f"📨 Received webhook payload: {json.dumps(payload)}...")
+#     try:
+#         msg_id = "-"
+#         payload = request.json
+#         logger.info(f"📨 Received webhook payload: {json.dumps(payload)}...")
         
-        # Extraer información del mensaje de Evolution API
-        if payload.get('event') == 'messages.upsert':
-            mensaje_data = payload.get('data', {})
+#         # Extraer información del mensaje de Evolution API
+#         if payload.get('event') == 'messages.upsert':
+#             mensaje_data = payload.get('data', {})
             
-            # Intentar extraer mensaje de texto
-            mensaje = mensaje_data.get('message', {}).get('conversation') or \
-                     mensaje_data.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+#             # Intentar extraer mensaje de texto
+#             mensaje = mensaje_data.get('message', {}).get('conversation') or \
+#                      mensaje_data.get('message', {}).get('extendedTextMessage', {}).get('text', '')
             
-            # Verificar si es un audio, imagen, video, documento u otro archivo
-            audio_message = mensaje_data.get('message', {}).get('audioMessage')
-            image_message = mensaje_data.get('message', {}).get('imageMessage')
-            video_message = mensaje_data.get('message', {}).get('videoMessage')
-            document_message = mensaje_data.get('message', {}).get('documentMessage')
-            sticker_message = mensaje_data.get('message', {}).get('stickerMessage')
+#             # Verificar si es un audio, imagen, video, documento u otro archivo
+#             audio_message = mensaje_data.get('message', {}).get('audioMessage')
+#             image_message = mensaje_data.get('message', {}).get('imageMessage')
+#             video_message = mensaje_data.get('message', {}).get('videoMessage')
+#             document_message = mensaje_data.get('message', {}).get('documentMessage')
+#             sticker_message = mensaje_data.get('message', {}).get('stickerMessage')
             
-            user_id = mensaje_data.get('key', {}).get('remoteJid', '')
-            from_me = mensaje_data.get('key', {}).get('fromMe', False)
-            msg_id = mensaje_data.get('key', {}).get('id', '-')
-            push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
-            client_id = user_id.split('@')[0] if user_id else "unknown" #telefono
+#             user_id = mensaje_data.get('key', {}).get('remoteJid', '')
+#             from_me = mensaje_data.get('key', {}).get('fromMe', False)
+#             msg_id = mensaje_data.get('key', {}).get('id', '-')
+#             push_name = mensaje_data.get('pushName', '') or mensaje_data.get('verifiedBizName', '')
+#             client_id = user_id.split('@')[0] if user_id else "unknown" #telefono
 
-            # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
-            business_id = payload.get('instance') or None
-            instance_id = mensaje_data.get('instanceId') or None
+#             # Intentar obtener instance/id proporcionado en el webhook desde Evolution API
+#             business_id = payload.get('instance') or None
+#             instance_id = mensaje_data.get('instanceId') or None
             
-            # Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
-            info_negocio = ClienteConfig(business_id)
-            ttl_minutos = info_negocio.ttl_sesion_minutos or 60
-            audio_transcripcion = info_negocio.audio_transcripcion or True
+#             # Obtener configuraciones específicas del negocio (como TTL, mensaje HITL, etc.)
+#             info_negocio = ClienteConfig(business_id)
+#             ttl_minutos = info_negocio.ttl_sesion_minutos or 60
+#             audio_transcripcion = info_negocio.audio_transcripcion or True
 
-            if DDOS_PROTECTION_ENABLED and ddos_protection:
-                if mensaje:
-                    puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id, mensaje)
-                else:
-                    puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
-                if not puede_procesar:
-                    logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
-                    return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429 
+#             if DDOS_PROTECTION_ENABLED and ddos_protection:
+#                 if mensaje:
+#                     puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id, mensaje)
+#                 else:
+#                     puede_procesar, mensaje_error = ddos_protection.puede_procesar(user_id)
+#                 if not puede_procesar:
+#                     logger.warning(f"⛔ DDoS Protection: bloqueando mensaje de {user_id}: {mensaje_error}")
+#                     return jsonify({"status": "blocked", "reason": "rate_limit", "message": mensaje_error}), 429 
 
-            #[TEXTO] Procesar mensaje de texto normal
-            if mensaje and user_id and not from_me:   
-                msg = f"[RCV <- EVO] 📨 ID: {client_id} - MSG: {mensaje[:100]}..."
-                generar_resumen_auditoria(business_id, msg)
-                executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, ttl_minutos)    
+#             #[TEXTO] Procesar mensaje de texto normal
+#             if mensaje and user_id and not from_me:   
+#                 msg = f"[RCV <- EVO] 📨 ID: {client_id} - MSG: {mensaje[:100]}..."
+#                 generar_resumen_auditoria(business_id, msg)
+#                 executor.submit(procesar_y_responder_evoapi, business_id, user_id, mensaje, push_name, ttl_minutos)    
 
-            # [MULTIMEDIA] Procesamiento de imágenes, videos, documentos y stickers
-            if (image_message or video_message or document_message or sticker_message) and not from_me and user_id:
-                tipo_archivo = "imagen" if image_message else \
-                               "video" if video_message else \
-                               "documento" if document_message else \
-                               "sticker"
+#             # [MULTIMEDIA] Procesamiento de imágenes, videos, documentos y stickers
+#             if (image_message or video_message or document_message or sticker_message) and not from_me and user_id:
+#                 tipo_archivo = "imagen" if image_message else \
+#                                "video" if video_message else \
+#                                "documento" if document_message else \
+#                                "sticker"
 
-                logger.info(f"Incomming {tipo_archivo.upper()} from {user_id} ({push_name})")
+#                 logger.info(f"Incomming {tipo_archivo.upper()} from {user_id} ({push_name})")
                 
-                # Procesar imágenes con AI Vision
-                if image_message:
-                    logger.info(f"🖼️ Procesando imagen de {user_id}. Analizando con AI Vision...")
-                    executor.submit(worker_procesar_imagen, business_id, user_id, msg_id, mensaje_data, push_name)
-                else:
-                    # Para videos, documentos y stickers, pedir texto
-                    msg = f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
-                    executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
+#                 # Procesar imágenes con AI Vision
+#                 if image_message:
+#                     logger.info(f"🖼️ Procesando imagen de {user_id}. Analizando con AI Vision...")
+#                     executor.submit(worker_procesar_imagen, business_id, user_id, msg_id, mensaje_data, push_name)
+#                 else:
+#                     # Para videos, documentos y stickers, pedir texto
+#                     msg = f"Gracias por tu {tipo_archivo}. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+#                     executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
             
-            # [AUDIO] Si es un mensaje tipo nota de voz
-            if audio_message and audio_message.get("ptt") and not from_me and user_id:
-                if audio_transcripcion:
-                    logger.info(f"🔊 Procesando audio de {user_id}. Transcribiendo y analizando con IA...")
-                    executor.submit(worker_procesar_audio, business_id, user_id, msg_id, mensaje_data, push_name, ttl_minutos)
-                else:
-                    logger.info(f"🔊 Audio recibido de {user_id}, pero la transcripción está deshabilitada. Enviando mensaje para pedir texto.")
-                    msg = f"Gracias por tu nota de voz. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
-                    executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
+#             # [AUDIO] Si es un mensaje tipo nota de voz
+#             if audio_message and audio_message.get("ptt") and not from_me and user_id:
+#                 if audio_transcripcion:
+#                     logger.info(f"🔊 Procesando audio de {user_id}. Transcribiendo y analizando con IA...")
+#                     executor.submit(worker_procesar_audio, business_id, user_id, msg_id, mensaje_data, push_name, ttl_minutos)
+#                 else:
+#                     logger.info(f"🔊 Audio recibido de {user_id}, pero la transcripción está deshabilitada. Enviando mensaje para pedir texto.")
+#                     msg = f"Gracias por tu nota de voz. Para poder ayudarte mejor, ¿podrías escribir tu consulta como texto? 📝"
+#                     executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
         
-        # [LISTA] Soporte alternativo para formato con lista de mensajes
-        for msg in payload.get("messages", []):
-            if msg.get("type") == "conversation":
-                user_id = msg["key"]["remoteJid"]
-                text = msg["message"]["conversation"]
-                from_me = msg["key"].get("fromMe", False)
-                push_name = msg.get('pushName', '') or msg.get('verifiedBizName', '')
-                client_id = user_id.split('@')[0] if user_id else "unknown"
+#         # [LISTA] Soporte alternativo para formato con lista de mensajes
+#         for msg in payload.get("messages", []):
+#             if msg.get("type") == "conversation":
+#                 user_id = msg["key"]["remoteJid"]
+#                 text = msg["message"]["conversation"]
+#                 from_me = msg["key"].get("fromMe", False)
+#                 push_name = msg.get('pushName', '') or msg.get('verifiedBizName', '')
+#                 client_id = user_id.split('@')[0] if user_id else "unknown"
                 
-                if text and user_id and not from_me:
-                    msg = f"[RCV <- EVO] 📄 ID: {client_id} - MSG: {text[:100]}..."
-                    generar_resumen_auditoria(business_id, msg)
-                    executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, ttl_minutos)  
-                else:
-                    logger.warning("⚠️[LIST] No se pudo procesar, enviando mensaje genérico")
-                    msg = f"No pudimos procesar tu solicitud."
-                    executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
+#                 if text and user_id and not from_me:
+#                     msg = f"[RCV <- EVO] 📄 ID: {client_id} - MSG: {text[:100]}..."
+#                     generar_resumen_auditoria(business_id, msg)
+#                     executor.submit(procesar_y_responder_evoapi, business_id, user_id, text, push_name, ttl_minutos)  
+#                 else:
+#                     logger.warning("⚠️[LIST] No se pudo procesar, enviando mensaje genérico")
+#                     msg = f"No pudimos procesar tu solicitud."
+#                     executor.submit(enviar_texto_whatsapp, user_id, msg, business_id)
         
-        # Responder inmediatamente (sin esperar procesamiento)
-        logger.debug(f"Responding to webhook immediately with 200 OK - ID: {msg_id}")
-        return jsonify({"status": "accepted"}), 200
+#         # Responder inmediatamente (sin esperar procesamiento)
+#         logger.debug(f"Responding to webhook immediately with 200 OK - ID: {msg_id}")
+#         return jsonify({"status": "accepted"}), 200
     
-    except Exception as e:
-        logger.error(f"🔴 Error en webhook /webhook/evoapi: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+#     except Exception as e:
+#         logger.error(f"🔴 Error en webhook /webhook/evoapi: {e}")
+#         return jsonify({"status": "error", "message": str(e)}), 500
 
 ################################################################################################
 ########################## Funciones de Instagram (comentarios y DMs) ##########################
 ################################################################################################
 
-# 1. Crear la Cola Global en memoria
-cola_comentarios = queue.Queue()
+# # 1. Crear la Cola Global en memoria
+# cola_comentarios = queue.Queue()
 
-# 2. Definir el "Obrero" (Worker) que vivirá en segundo plano
-def worker_secuencial_instagram():
-    logger.info("👷 Worker de Instagram iniciado y esperando tareas...")
-    while True:
-        # El hilo se pausa aquí sin consumir CPU hasta que entre un mensaje
-        tarea = cola_comentarios.get() 
+# # 2. Definir el "Obrero" (Worker) que vivirá en segundo plano
+# def worker_secuencial_instagram():
+#     logger.info("👷 Worker de Instagram iniciado y esperando tareas...")
+#     while True:
+#         # El hilo se pausa aquí sin consumir CPU hasta que entre un mensaje
+#         tarea = cola_comentarios.get() 
         
-        if tarea is None:
-            break # Señal de apagado
+#         if tarea is None:
+#             break # Señal de apagado
             
-        try:
-            # Desempaquetamos los datos
-            page_id, user_id, username, comment_id, comment_text, media_id, media_type = tarea
+#         try:
+#             # Desempaquetamos los datos
+#             page_id, user_id, username, comment_id, comment_text, media_id, media_type = tarea
             
-            # PACING & JITTER: Retraso aleatorio (ej: 4 a 12 segundos)
-            # ¿Cuántos mensajes quedan esperando en la fila?
-            # Como acabamos de hacer un .get(), si qsize() es 0, significa que este era el ÚNICO mensaje pendiente.
-            mensajes_en_espera = cola_comentarios.qsize()
+#             # PACING & JITTER: Retraso aleatorio (ej: 4 a 12 segundos)
+#             # ¿Cuántos mensajes quedan esperando en la fila?
+#             # Como acabamos de hacer un .get(), si qsize() es 0, significa que este era el ÚNICO mensaje pendiente.
+#             mensajes_en_espera = cola_comentarios.qsize()
             
-            if mensajes_en_espera == 0:
-                # Tráfico normal: Respondemos casi al instante.
-                # Nota de seguridad Meta: No uses 0.0. Un humano tarda al menos
-                # 1.5 a 2 segundos en leer y presionar "Enviar". 
-                retraso = random.uniform(1.5, 2.5) 
-                logger.info(f"⚡ Fila vacía. Respondiendo rápido a @{username} (Pausa: {retraso:.1f}s)")
-            else:
-                # Tráfico viral: Modo Anti-Baneo activado.
-                retraso = random.uniform(5.0, 14.0)
-                logger.info(f"🚦 Fila: {mensajes_en_espera} pendientes. Aplicando JITTER de {retraso:.1f}s a @{username}")
+#             if mensajes_en_espera == 0:
+#                 # Tráfico normal: Respondemos casi al instante.
+#                 # Nota de seguridad Meta: No uses 0.0. Un humano tarda al menos
+#                 # 1.5 a 2 segundos en leer y presionar "Enviar". 
+#                 retraso = random.uniform(1.5, 2.5) 
+#                 logger.info(f"⚡ Fila vacía. Respondiendo rápido a @{username} (Pausa: {retraso:.1f}s)")
+#             else:
+#                 # Tráfico viral: Modo Anti-Baneo activado.
+#                 retraso = random.uniform(5.0, 14.0)
+#                 logger.info(f"🚦 Fila: {mensajes_en_espera} pendientes. Aplicando JITTER de {retraso:.1f}s a @{username}")
             
-            time.sleep(retraso)
+#             time.sleep(retraso)
             
-            # Contesta el comentario y envia un mensaje a Chatwoot para que envíe un DM si es necesario
-            procesar_y_responder_ig_keyword_comment(
-                page_id, user_id, username, comment_id, comment_text, media_id, media_type
-            )
+#             # Contesta el comentario y envia un mensaje a Chatwoot para que envíe un DM si es necesario
+#             procesar_y_responder_ig_keyword_comment(
+#                 page_id, user_id, username, comment_id, comment_text, media_id, media_type
+#             )
             
-        except Exception as e:
-            logger.error(f"🔴 Error en Worker procesando a @{username}: {e}")
-        finally:
-            # Le avisamos a la cola que terminamos con este ítem
-            cola_comentarios.task_done()
+#         except Exception as e:
+#             logger.error(f"🔴 Error en Worker procesando a @{username}: {e}")
+#         finally:
+#             # Le avisamos a la cola que terminamos con este ítem
+#             cola_comentarios.task_done()
 
 
-# ==================== WEBHOOK DE INSTAGRAM COMMENTS y DMs ====================
-@app.route('/webhook/instagram', methods=['GET', 'POST'])
-def webhook_instagram():
-    """Endpoint para recibir webhooks de Instagram (comentarios en publicaciones, DMs y Verificación de webhook por parte de Meta)
+# # ==================== WEBHOOK DE INSTAGRAM COMMENTS y DMs ====================
+# @app.route('/webhook/instagram', methods=['GET', 'POST'])
+# def webhook_instagram():
+#     """Endpoint para recibir webhooks de Instagram (comentarios en publicaciones, DMs y Verificación de webhook por parte de Meta)
     
-    GET: Verificación de webhook por parte de Meta
-    POST: Recepción de comentarios de Instagram
-    """
-    logger.info(f"📨 Received Instagram webhook: method={request.method}, args={request.args}, payload={json.dumps(request.get_json(silent=True) or {})}")
-    if request.method == 'GET':
-        # Verificación de webhook de Meta
-        verify_token = os.getenv('INSTAGRAM_VERIFY_TOKEN', 'instagram_webhook_verify_2026')
-        mode = request.args.get('hub.mode')
-        token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
+#     GET: Verificación de webhook por parte de Meta
+#     POST: Recepción de comentarios de Instagram
+#     """
+#     logger.info(f"📨 Received Instagram webhook: method={request.method}, args={request.args}, payload={json.dumps(request.get_json(silent=True) or {})}")
+#     if request.method == 'GET':
+#         # Verificación de webhook de Meta
+#         verify_token = os.getenv('INSTAGRAM_VERIFY_TOKEN', 'instagram_webhook_verify_2026')
+#         mode = request.args.get('hub.mode')
+#         token = request.args.get('hub.verify_token')
+#         challenge = request.args.get('hub.challenge')
         
-        if mode == 'subscribe' and token == verify_token:
-            logger.info(f"✅ Instagram webhook verificado correctamente")
-            return challenge, 200
-        else:
-            logger.warning(f"⚠️ Verificación fallida: mode={mode}, token={token}")
-            return 'Forbidden', 403
+#         if mode == 'subscribe' and token == verify_token:
+#             logger.info(f"✅ Instagram webhook verificado correctamente")
+#             return challenge, 200
+#         else:
+#             logger.warning(f"⚠️ Verificación fallida: mode={mode}, token={token}")
+#             return 'Forbidden', 403
     
-    elif request.method == 'POST':
-        try:
-            payload = request.get_json(silent=True) or {}
-            logger.info(f"📸 Instagram webhook recibido: {json.dumps(payload)[:300]}...")
+#     elif request.method == 'POST':
+#         try:
+#             payload = request.get_json(silent=True) or {}
+#             logger.info(f"📸 Instagram webhook recibido: {json.dumps(payload)[:300]}...")
             
-            # Procesar cada entrada del webhook
-            for entry in payload.get('entry', []):
-                recipient_id = entry.get('id')  # Instagram Page ID (en DM)
-                # Los comentarios vienen en el campo 'changes'
-                for change in entry.get('changes', []):
-                    if change.get('field') == 'comments':
-                        value = change.get('value', {})
+#             # Procesar cada entrada del webhook
+#             for entry in payload.get('entry', []):
+#                 recipient_id = entry.get('id')  # Instagram Page ID (en DM)
+#                 # Los comentarios vienen en el campo 'changes'
+#                 for change in entry.get('changes', []):
+#                     if change.get('field') == 'comments':
+#                         value = change.get('value', {})
                         
-                        # Extraer datos del comentario
-                        comment_id = value.get('id')
-                        comment_text = value.get('text', '')
-                        media_id = value.get('media', {}).get('id')
-                        media_type = value.get('media', {}).get('media_product_type', 'UNKNOWN')
+#                         # Extraer datos del comentario
+#                         comment_id = value.get('id')
+#                         comment_text = value.get('text', '')
+#                         media_id = value.get('media', {}).get('id')
+#                         media_type = value.get('media', {}).get('media_product_type', 'UNKNOWN')
                         
-                        from_user = value.get('from', {})
-                        user_id = from_user.get('id')
-                        username = from_user.get('username', 'usuario')
+#                         from_user = value.get('from', {})
+#                         user_id = from_user.get('id')
+#                         username = from_user.get('username', 'usuario')
                         
-                        page_id = entry.get('id')  # Instagram Page ID
+#                         page_id = entry.get('id')  # Instagram Page ID
 
-                        # Ignorar comentarios/respuestas del propio bot para evitar loops
-                        if user_id == page_id:
-                            logger.debug(f"🔁 Ignorando comentario propio del bot (user_id={user_id})")
-                            continue
+#                         # Ignorar comentarios/respuestas del propio bot para evitar loops
+#                         if user_id == page_id:
+#                             logger.debug(f"🔁 Ignorando comentario propio del bot (user_id={user_id})")
+#                             continue
 
-                        # Ignorar si es una reply (tiene parent_id) para evitar responder a respuestas
-                        if value.get('parent_id'):
-                            logger.debug(f"↩️ Ignorando reply de @{username} (parent_id={value.get('parent_id')})")
-                            continue
+#                         # Ignorar si es una reply (tiene parent_id) para evitar responder a respuestas
+#                         if value.get('parent_id'):
+#                             logger.debug(f"↩️ Ignorando reply de @{username} (parent_id={value.get('parent_id')})")
+#                             continue
                         
-                        logger.info(f"💬 Comentario IG de @{username}({user_id}): {comment_text[:100]}")
-                        logger.info(f"   Media: {media_type} (ID: {media_id})")
+#                         logger.info(f"💬 Comentario IG de @{username}({user_id}): {comment_text[:100]}")
+#                         logger.info(f"   Media: {media_type} (ID: {media_id})")
 
-                        # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
-                        if user_id and DDOS_PROTECTION_ENABLED and ddos_protection:
-                            puede_procesar, msg_error = ddos_protection.puede_procesar(user_id, comment_text)
+#                         # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
+#                         if user_id and DDOS_PROTECTION_ENABLED and ddos_protection:
+#                             puede_procesar, msg_error = ddos_protection.puede_procesar(user_id, comment_text)
 
-                            if not puede_procesar:
-                                logger.warning(f"Escudo activado para {user_id}")
-                                # Ignoramos el mensaje, devolvemos 200 a Meta y no gastamos IA
-                                return jsonify({"status": "blocked_by_shield"}), 200
+#                             if not puede_procesar:
+#                                 logger.warning(f"Escudo activado para {user_id}")
+#                                 # Ignoramos el mensaje, devolvemos 200 a Meta y no gastamos IA
+#                                 return jsonify({"status": "blocked_by_shield"}), 200
                         
-                        logger.debug(f"🛡️ Escudo permitió el mensaje de {user_id}")
+#                         logger.debug(f"🛡️ Escudo permitió el mensaje de {user_id}")
 
-                        # Empaquetamos todo en una tupla y lo lanzamos a la cola
-                        cola_comentarios.put((
-                            page_id, user_id, username, comment_id, comment_text, media_id, media_type
-                        ))
+#                         # Empaquetamos todo en una tupla y lo lanzamos a la cola
+#                         cola_comentarios.put((
+#                             page_id, user_id, username, comment_id, comment_text, media_id, media_type
+#                         ))
 
-                # B)- Mensajes directos (DMs) vienen en el campo 'messaging'
-                for msg_event in entry.get('messaging', []):
-                    # Ignorar ediciones de mensaje
-                    if 'message_edit' in msg_event:
-                        logger.debug("✏️ Ignorando message_edit de IG DM")
-                        continue
+#                 # B)- Mensajes directos (DMs) vienen en el campo 'messaging'
+#                 for msg_event in entry.get('messaging', []):
+#                     # Ignorar ediciones de mensaje
+#                     if 'message_edit' in msg_event:
+#                         logger.debug("✏️ Ignorando message_edit de IG DM")
+#                         continue
 
-                    message = msg_event.get('message', {})
-                    if not message:
-                        continue
+#                     message = msg_event.get('message', {})
+#                     if not message:
+#                         continue
 
-                    sender_id = msg_event.get('sender', {}).get('id')
+#                     sender_id = msg_event.get('sender', {}).get('id')
 
-                    page_id = entry.get('id')
+#                     page_id = entry.get('id')
 
-                    # Ignorar echos (mensajes enviados por el propio bot)
-                    if message.get('is_echo'):
-                        logger.debug(f"🔁 Ignorando echo de DM propio del bot")
-                        continue
+#                     # Ignorar echos (mensajes enviados por el propio bot)
+#                     if message.get('is_echo'):
+#                         logger.debug(f"🔁 Ignorando echo de DM propio del bot")
+#                         continue
 
-                    dm_text = message.get('text', '')
+#                     dm_text = message.get('text', '')
 
-                    mid = message.get('mid', '')
+#                     mid = message.get('mid', '')
 
-                    # if not dm_text:
-                    #     logger.debug(f"ℹ️ DM sin texto (mid={mid}), ignorando")
-                    #     continue
+#                     # if not dm_text:
+#                     #     logger.debug(f"ℹ️ DM sin texto (mid={mid}), ignorando")
+#                     #     continue
 
-                    logger.info(f"📩 DM IG de {sender_id}: {dm_text[:100]}")
-                    # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
-                    if sender_id and DDOS_PROTECTION_ENABLED and ddos_protection:
-                        puede_procesar, msg_error = ddos_protection.puede_procesar(sender_id, dm_text)
+#                     logger.info(f"📩 DM IG de {sender_id}: {dm_text[:100]}")
+#                     # # 🛡️ PROTECCIÓN DDoS: verificar todas las capas de seguridad (si está habilitada)
+#                     if sender_id and DDOS_PROTECTION_ENABLED and ddos_protection:
+#                         puede_procesar, msg_error = ddos_protection.puede_procesar(sender_id, dm_text)
 
-                        if not puede_procesar:
-                            logger.warning(f"Escudo activado para {sender_id}")
-                            return jsonify({"status": "blocked_by_shield"}), 200
+#                         if not puede_procesar:
+#                             logger.warning(f"Escudo activado para {sender_id}")
+#                             return jsonify({"status": "blocked_by_shield"}), 200
                  
-                    logger.debug(f"🛡️ Escudo permitió el DM de {sender_id}")
-                    executor.submit(enviar_mensaje_dm_chatwoot, page_id, sender_id, dm_text, payload)
+#                     logger.debug(f"🛡️ Escudo permitió el DM de {sender_id}")
+#                     executor.submit(enviar_mensaje_dm_chatwoot, page_id, sender_id, dm_text, payload)
             
-            return jsonify({"status": "received"}), 200
+#             return jsonify({"status": "received"}), 200
             
-        except Exception as e:
-            logger.error(f"🔴 Error procesando webhook Instagram: {e}")
-            return jsonify({"status": "error", "message": str(e)}), 500
+#         except Exception as e:
+#             logger.error(f"🔴 Error procesando webhook Instagram: {e}")
+#             return jsonify({"status": "error", "message": str(e)}), 500
 
 
-def procesar_y_responder_ig_keyword_comment(page_id, user_id, username, comment_id, comment_text, media_id, media_type):
-    """Procesa un comentario de Instagram y responde usando el agente IA"""
-    try:
-        logger.info(f"Procesando comentario keyword IG de @{username}: {comment_text[:80]}")
+# def procesar_y_responder_ig_keyword_comment(page_id, user_id, username, comment_id, comment_text, media_id, media_type):
+#     """Procesa un comentario de Instagram y responde usando el agente IA"""
+#     try:
+#         logger.info(f"Procesando comentario keyword IG de @{username}: {comment_text[:80]}")
         
-        # Mapear el page_id numérico de IG al business_id configurado en el sistema.
-        # Si no hay mapeo explícito, fallback al valor fijo INSTAGRAM_BUSINESS_ID del .env.
-        ig_page_map_raw = os.getenv("INSTAGRAM_PAGE_MAP", "cliente1")  # formato: "page_id1:biz1,page_id2:biz2"
-        ig_page_map = dict(pair.split(":") for pair in ig_page_map_raw.split(",") if ":" in pair)
-        business_id = ig_page_map.get(str(page_id)) or os.getenv("INSTAGRAM_BUSINESS_ID", page_id)
+#         # Mapear el page_id numérico de IG al business_id configurado en el sistema.
+#         # Si no hay mapeo explícito, fallback al valor fijo INSTAGRAM_BUSINESS_ID del .env.
+#         ig_page_map_raw = os.getenv("INSTAGRAM_PAGE_MAP", "cliente1")  # formato: "page_id1:biz1,page_id2:biz2"
+#         ig_page_map = dict(pair.split(":") for pair in ig_page_map_raw.split(",") if ":" in pair)
+#         business_id = ig_page_map.get(str(page_id)) or os.getenv("INSTAGRAM_BUSINESS_ID", page_id)
         
-        logger.debug(f"[IG] page_id={page_id} → business_id={business_id}")
+#         logger.debug(f"[IG] page_id={page_id} → business_id={business_id}")
         
-        info_negocio = ClienteConfig(business_id)
-        ttl_minutos = info_negocio.ttl_sesion_minutos or 60
+#         info_negocio = ClienteConfig(business_id)
+#         ttl_minutos = info_negocio.ttl_sesion_minutos or 60
         
-        # user_id único: prefijado con ig_ para no colisionar con threads de WhatsApp
-        ig_user_id = f"ig_{user_id}"
-        logger.debug(f"Generando user_id para IG: {ig_user_id}")
+#         # user_id único: prefijado con ig_ para no colisionar con threads de WhatsApp
+#         ig_user_id = f"ig_{user_id}"
+#         logger.debug(f"Generando user_id para IG: {ig_user_id}")
         
-        respuesta = "Gracias"  # Respuesta genérica por defecto
-        keyword = "info"
+#         respuesta = "Gracias"  # Respuesta genérica por defecto
+#         keyword = "info"
 
-        # Normalizar el texto del comentario antes de comparar (quita espacios y case-insensitive)
-        comentario_norm = (comment_text or "").strip().lower()
-        # Verifica si el comentario contiene la keyword (subcadena), no solo igualdad
-        if keyword in comentario_norm:
-            logger.info(f"🔍 Comentario coincide con keyword '{keyword}', enviando respuesta automática.")
-            # 🚀 2. VERIFICAMOS EL TRACKER
-            if tracker_dms.ya_recibio_dm(user_id):
-                # CASO A: Ya recibió un DM hoy. Solo respondemos el comentario, sin enviar DM.
-                logger.info(f"⚠️ @{username} ya recibió un DM hoy. Respondiendo solo el comentario sin enviar otro DM.")
-                respuesta = f"Hola @{username}, ya te envié un mensaje privado con la información. ¡Échale un vistazo! 📬"
-            else:
-                # CASO B: Es la primera vez que pregunta hoy.
-                # Respondemos el comentario Y mandamos el DM.
-                respuesta = "Te vamos a mandar un mensaje privado con la información que solicitaste. Por favor revisa tu bandeja de entrada. 📩"
-                message_text = "Quiero información adicional" # El texto del DM que se enviará a Chatwoot para que el bot responda desde ahí         
-                enviar_mensaje_dm_chatwoot(page_id, user_id, message_text)
-                # 🚀 3. REGISTRAMOS EL ENVÍO PARA BLOQUEAR FUTUROS DMs
-                tracker_dms.registrar_envio(user_id)
-                logger.info(f"✅ DM enviado y registrado para @{username}.")
+#         # Normalizar el texto del comentario antes de comparar (quita espacios y case-insensitive)
+#         comentario_norm = (comment_text or "").strip().lower()
+#         # Verifica si el comentario contiene la keyword (subcadena), no solo igualdad
+#         if keyword in comentario_norm:
+#             logger.info(f"🔍 Comentario coincide con keyword '{keyword}', enviando respuesta automática.")
+#             # 🚀 2. VERIFICAMOS EL TRACKER
+#             if tracker_dms.ya_recibio_dm(user_id):
+#                 # CASO A: Ya recibió un DM hoy. Solo respondemos el comentario, sin enviar DM.
+#                 logger.info(f"⚠️ @{username} ya recibió un DM hoy. Respondiendo solo el comentario sin enviar otro DM.")
+#                 respuesta = f"Hola @{username}, ya te envié un mensaje privado con la información. ¡Échale un vistazo! 📬"
+#             else:
+#                 # CASO B: Es la primera vez que pregunta hoy.
+#                 # Respondemos el comentario Y mandamos el DM.
+#                 respuesta = "Te vamos a mandar un mensaje privado con la información que solicitaste. Por favor revisa tu bandeja de entrada. 📩"
+#                 message_text = "Quiero información adicional" # El texto del DM que se enviará a Chatwoot para que el bot responda desde ahí         
+#                 enviar_mensaje_dm_chatwoot(page_id, user_id, message_text)
+#                 # 🚀 3. REGISTRAMOS EL ENVÍO PARA BLOQUEAR FUTUROS DMs
+#                 tracker_dms.registrar_envio(user_id)
+#                 logger.info(f"✅ DM enviado y registrado para @{username}.")
         
-        if respuesta:
-            ok = responder_comentario_instagram(comment_id, respuesta)
-            if ok:
-                logger.info(f"✅ Respuesta enviada a @{username} en IG")
-                msg = f"[SND -> IG] 📤 ID: @{username} - MSG: {respuesta[:100]}..."
-                generar_resumen_auditoria(business_id, msg)
-            else:
-                logger.error(f"❌ Fallo al publicar respuesta en IG para @{username}. Verifica INSTAGRAM_ACCESS_TOKEN.")
-        else:
-            logger.info(f"⚠️ No se detectó keyword en el comentario de @{username}")
+#         if respuesta:
+#             ok = responder_comentario_instagram(comment_id, respuesta)
+#             if ok:
+#                 logger.info(f"✅ Respuesta enviada a @{username} en IG")
+#                 msg = f"[SND -> IG] 📤 ID: @{username} - MSG: {respuesta[:100]}..."
+#                 generar_resumen_auditoria(business_id, msg)
+#             else:
+#                 logger.error(f"❌ Fallo al publicar respuesta en IG para @{username}. Verifica INSTAGRAM_ACCESS_TOKEN.")
+#         else:
+#             logger.info(f"⚠️ No se detectó keyword en el comentario de @{username}")
         
-        # contexto_adicional = f"\n[Usuario: @{username} comentó en tu {media_type}]"
-        # mensaje_completo = comment_text + contexto_adicional
+#         # contexto_adicional = f"\n[Usuario: @{username} comentó en tu {media_type}]"
+#         # mensaje_completo = comment_text + contexto_adicional
         
-        # # Procesar con el agente IA usando adaptar_procesar_mensaje (maneja el config correctamente)
-        # respuesta = adaptar_procesar_mensaje(
-        #     business_id, ig_user_id, mensaje_completo,
-        #     client_name=username, ttl_minutos=ttl_minutos
-        # )
+#         # # Procesar con el agente IA usando adaptar_procesar_mensaje (maneja el config correctamente)
+#         # respuesta = adaptar_procesar_mensaje(
+#         #     business_id, ig_user_id, mensaje_completo,
+#         #     client_name=username, ttl_minutos=ttl_minutos
+#         # )
             
-    except Exception as e:
-        logger.error(f"🔴 Error procesando comentario Instagram de @{username}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+#     except Exception as e:
+#         logger.error(f"🔴 Error procesando comentario Instagram de @{username}: {e}")
+#         import traceback
+#         logger.error(traceback.format_exc())
 
 
-def enviar_mensaje_dm_chatwoot(page_id, user_id, message_text, payload=None):
-    """Envía un mensaje directo a Chatwoot para que el bot responda desde ahí (en lugar de responder directamente en IG)"""
+# def enviar_mensaje_dm_chatwoot(page_id, user_id, message_text, payload=None):
+#     """Envía un mensaje directo a Chatwoot para que el bot responda desde ahí (en lugar de responder directamente en IG)"""
 
-    if payload is None:
-        payload = generar_payload_ig_dm(page_id, user_id, message_text, mid=None)
+#     if payload is None:
+#         payload = generar_payload_ig_dm(page_id, user_id, message_text, mid=None)
     
-    logger.debug(f"Payload simulado para DM → {json.dumps(payload)}")
-    # Reenviar el DM al webhook de Chatwoot para crear/actualizar conversación
-    try:
-        chatwoot_ig_webhook = os.getenv("CHATWOOT_IG_WEBHOOK_URL", "https://sischat.sisnova.com.ar/webhooks/instagram")
-        resp_cwt = requests.post(chatwoot_ig_webhook, json=payload, timeout=5)
-        logger.debug(f"📤 DM reenviado a Chatwoot IG webhook → {resp_cwt.status_code}")
-    except Exception as fwd_err:
-        logger.error(f"🔴 Error reenviando DM a Chatwoot: {fwd_err}")
+#     logger.debug(f"Payload simulado para DM → {json.dumps(payload)}")
+#     # Reenviar el DM al webhook de Chatwoot para crear/actualizar conversación
+#     try:
+#         chatwoot_ig_webhook = os.getenv("CHATWOOT_IG_WEBHOOK_URL", "https://sischat.sisnova.com.ar/webhooks/instagram")
+#         resp_cwt = requests.post(chatwoot_ig_webhook, json=payload, timeout=5)
+#         logger.debug(f"📤 DM reenviado a Chatwoot IG webhook → {resp_cwt.status_code}")
+#     except Exception as fwd_err:
+#         logger.error(f"🔴 Error reenviando DM a Chatwoot: {fwd_err}")
 
 
-def responder_comentario_instagram(comment_id: str, mensaje: str):
-    """Responde a un comentario de Instagram usando la Graph API de Meta
+# def responder_comentario_instagram(comment_id: str, mensaje: str):
+#     """Responde a un comentario de Instagram usando la Graph API de Meta
     
-    Args:
-        comment_id: ID del comentario a responder
-        mensaje: Texto de la respuesta
-    """
-    try:
-        access_token = os.getenv('INSTAGRAM_ACCESS_TOKEN')
-        if not access_token:
-            logger.error("❌ INSTAGRAM_ACCESS_TOKEN no configurado")
-            return False
+#     Args:
+#         comment_id: ID del comentario a responder
+#         mensaje: Texto de la respuesta
+#     """
+#     try:
+#         access_token = os.getenv('INSTAGRAM_ACCESS_TOKEN')
+#         if not access_token:
+#             logger.error("❌ INSTAGRAM_ACCESS_TOKEN no configurado")
+#             return False
         
-        # URL de la Graph API para responder comentarios
-        url = f"https://graph.facebook.com/v23.0/{comment_id}/replies"
+#         # URL de la Graph API para responder comentarios
+#         url = f"https://graph.facebook.com/v23.0/{comment_id}/replies"
         
-        # Limitar respuesta a 500 caracteres (límite de Instagram)
-        mensaje_truncado = mensaje[:500]
+#         # Limitar respuesta a 500 caracteres (límite de Instagram)
+#         mensaje_truncado = mensaje[:500]
         
-        payload = {
-            "message": mensaje_truncado,
-            "access_token": access_token
-        }
+#         payload = {
+#             "message": mensaje_truncado,
+#             "access_token": access_token
+#         }
         
-        response = requests.post(url, params=payload, timeout=10)
+#         response = requests.post(url, params=payload, timeout=10)
         
-        if response.status_code == 200:
-            result = response.json()
-            logger.info(f"📨 Respuesta IG enviada: {result}")
-            return True
-        else:
-            # Analizamos el error de Meta
-            error_data = response.json().get("error", {})
-            error_code = error_data.get("code")
-            error_msg = error_data.get("message", "").lower()
-            logger.error(f"❌ Error al responder en IG: {response.status_code} - {response.text}")
-            logger.error(f"❌ Error code {error_code} al responder en IG: {error_msg}")  
-            # Código 10 o menciones de privacidad suelen ser cuentas cerradas
-            if error_code == 10 or "privacy" in error_msg or "not allow" in error_msg:
-                logger.warning(f"🔒 Cuenta privada detectada para {recipient_id}")
-            return False
+#         if response.status_code == 200:
+#             result = response.json()
+#             logger.info(f"📨 Respuesta IG enviada: {result}")
+#             return True
+#         else:
+#             # Analizamos el error de Meta
+#             error_data = response.json().get("error", {})
+#             error_code = error_data.get("code")
+#             error_msg = error_data.get("message", "").lower()
+#             logger.error(f"❌ Error al responder en IG: {response.status_code} - {response.text}")
+#             logger.error(f"❌ Error code {error_code} al responder en IG: {error_msg}")  
+#             # Código 10 o menciones de privacidad suelen ser cuentas cerradas
+#             if error_code == 10 or "privacy" in error_msg or "not allow" in error_msg:
+#                 logger.warning(f"🔒 Cuenta privada detectada para {recipient_id}")
+#             return False
             
-    except Exception as e:
-        logger.error(f"🔴 Error en responder_comentario_instagram: {e}")
-        return False
+#     except Exception as e:
+#         logger.error(f"🔴 Error en responder_comentario_instagram: {e}")
+#         return False
 
 
-def generar_payload_ig_dm(page_id, user_id, message_text, mid):
-    """Genera un Message ID (mid) falso con el mismo formato que usa Meta"""
+# def generar_payload_ig_dm(page_id, user_id, message_text, mid):
+#     """Genera un Message ID (mid) falso con el mismo formato que usa Meta"""
     
-    if mid is None:
-        # 1. Creamos datos únicos (timestamp actual + un ID aleatorio)
-        timestamp = int(time.time() * 1000)
-        id_aleatorio = uuid.uuid4().hex
+#     if mid is None:
+#         # 1. Creamos datos únicos (timestamp actual + un ID aleatorio)
+#         timestamp = int(time.time() * 1000)
+#         id_aleatorio = uuid.uuid4().hex
         
-        # 2. Simulamos la estructura interna que Meta usa antes de codificar
-        estructura_interna = f"m_id:test_saas:{timestamp}:{id_aleatorio}"
+#         # 2. Simulamos la estructura interna que Meta usa antes de codificar
+#         estructura_interna = f"m_id:test_saas:{timestamp}:{id_aleatorio}"
             
-        # 3. Lo codificamos en Base64 para que se vea como el chorizo de letras real
-        mid_base64 = base64.b64encode(estructura_interna.encode('utf-8')).decode('utf-8')
+#         # 3. Lo codificamos en Base64 para que se vea como el chorizo de letras real
+#         mid_base64 = base64.b64encode(estructura_interna.encode('utf-8')).decode('utf-8')
 
-        mid = f"bWdf{mid_base64}"
+#         mid = f"bWdf{mid_base64}"
 
-    payload = {
-        "object": "instagram",
-        "entry": [
-            {
-            "time": int(time.time() * 1000),
-            "id": page_id,
-            "messaging": [
-                    {
-                        "sender": { "id": user_id },
-                        "recipient": { "id": page_id },
-                        "timestamp": int(time.time() * 1000),
-                        "message": {
-                            "mid": mid,
-                            "text": message_text
-                        }
-                    }
-                ]
-            }
-        ]
-    }
+#     payload = {
+#         "object": "instagram",
+#         "entry": [
+#             {
+#             "time": int(time.time() * 1000),
+#             "id": page_id,
+#             "messaging": [
+#                     {
+#                         "sender": { "id": user_id },
+#                         "recipient": { "id": page_id },
+#                         "timestamp": int(time.time() * 1000),
+#                         "message": {
+#                             "mid": mid,
+#                             "text": message_text
+#                         }
+#                     }
+#                 ]
+#             }
+#         ]
+#     }
 
-    return payload
-
-
-# No Funciona. Se deben enviar los DMs a Chatwoot para que el bot responda desde ahí
-def procesar_y_responder_ig_dm(page_id, sender_id, texto, mid):
-    """Procesa un mensaje directo de Instagram y responde usando el agente IA"""
-    try:
-        logger.info(f"📩 Procesando DM IG de {sender_id}: {texto[:80]}")
-
-        ig_page_map_raw = os.getenv("INSTAGRAM_PAGE_MAP", "")
-        ig_page_map = dict(pair.split(":") for pair in ig_page_map_raw.split(",") if ":" in pair)
-        business_id = ig_page_map.get(str(page_id)) or os.getenv("INSTAGRAM_BUSINESS_ID", page_id)
-
-        logger.debug(f"[IG DM] page_id={page_id} → business_id={business_id}")
-
-        info_negocio = ClienteConfig(business_id)
-        ttl_minutos = info_negocio.ttl_sesion_minutos or 60
-
-        # Prefijo igdm_ para separar el hilo de DMs del de comentarios
-        ig_user_id = f"igdm_{sender_id}"
-
-        respuesta = adaptar_procesar_mensaje(
-            business_id, ig_user_id, texto,
-            client_name=sender_id, ttl_minutos=ttl_minutos
-        )
-
-        if respuesta:
-            ok = enviar_dm_instagram(page_id, sender_id, respuesta)
-            if ok:
-                logger.info(f"✅ DM enviado a {sender_id} en IG")
-                msg = f"[SND -> IG DM] 📤 ID: {sender_id} - MSG: {respuesta[:100]}..."
-                generar_resumen_auditoria(business_id, msg)
-            else:
-                logger.error(f"❌ Fallo al enviar DM IG a {sender_id}. Verifica INSTAGRAM_ACCESS_TOKEN.")
-        else:
-            logger.warning(f"⚠️ No se obtuvo respuesta del agente para DM de {sender_id}")
-
-    except Exception as e:
-        logger.error(f"🔴 Error procesando DM Instagram de {sender_id}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+#     return payload
 
 
-def enviar_dm_instagram(ig_page_id: str, recipient_id: str, mensaje: str):
-    """Envía un mensaje directo de Instagram usando la Graph API de Meta (No Funciona)"""
-    try:
-        access_token = os.getenv('INSTAGRAM_ACCESS_TOKEN')
-        if not access_token:
-            logger.error("❌ INSTAGRAM_ACCESS_TOKEN no configurado")
-            return False
+# # No Funciona. Se deben enviar los DMs a Chatwoot para que el bot responda desde ahí
+# def procesar_y_responder_ig_dm(page_id, sender_id, texto, mid):
+#     """Procesa un mensaje directo de Instagram y responde usando el agente IA"""
+#     try:
+#         logger.info(f"📩 Procesando DM IG de {sender_id}: {texto[:80]}")
 
-        url = f"https://graph.facebook.com/v25.0/{ig_page_id}/messages"
+#         ig_page_map_raw = os.getenv("INSTAGRAM_PAGE_MAP", "")
+#         ig_page_map = dict(pair.split(":") for pair in ig_page_map_raw.split(",") if ":" in pair)
+#         business_id = ig_page_map.get(str(page_id)) or os.getenv("INSTAGRAM_BUSINESS_ID", page_id)
 
-        # Límite de 1000 caracteres para IG DM
-        mensaje_truncado = mensaje[:1000]
+#         logger.debug(f"[IG DM] page_id={page_id} → business_id={business_id}")
 
-        payload = {
-            "recipient": {"id": recipient_id},
-            "message": {"text": mensaje_truncado},
-            "messaging_type": "RESPONSE"         
-        }
+#         info_negocio = ClienteConfig(business_id)
+#         ttl_minutos = info_negocio.ttl_sesion_minutos or 60
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
+#         # Prefijo igdm_ para separar el hilo de DMs del de comentarios
+#         ig_user_id = f"igdm_{sender_id}"
 
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
+#         respuesta = adaptar_procesar_mensaje(
+#             business_id, ig_user_id, texto,
+#             client_name=sender_id, ttl_minutos=ttl_minutos
+#         )
 
-        if response.status_code == 200:
-            result = response.json()
-            logger.info(f"📨 DM IG enviado: {result.get('message_id', result)}")
-            return True
-        else:
-            logger.error(f"❌ Error al enviar DM en IG: {response.status_code} - {response.text}")
-            return False
+#         if respuesta:
+#             ok = enviar_dm_instagram(page_id, sender_id, respuesta)
+#             if ok:
+#                 logger.info(f"✅ DM enviado a {sender_id} en IG")
+#                 msg = f"[SND -> IG DM] 📤 ID: {sender_id} - MSG: {respuesta[:100]}..."
+#                 generar_resumen_auditoria(business_id, msg)
+#             else:
+#                 logger.error(f"❌ Fallo al enviar DM IG a {sender_id}. Verifica INSTAGRAM_ACCESS_TOKEN.")
+#         else:
+#             logger.warning(f"⚠️ No se obtuvo respuesta del agente para DM de {sender_id}")
 
-    except requests.exceptions.Timeout:
-        logger.error(f"🔴 Timeout al enviar DM IG a {recipient_id}")
-        return False
-    except Exception as e:
-        logger.error(f"🔴 Error en enviar_dm_instagram: {e}")
-        return False
+#     except Exception as e:
+#         logger.error(f"🔴 Error procesando DM Instagram de {sender_id}: {e}")
+#         import traceback
+#         logger.error(traceback.format_exc())
+
+
+# def enviar_dm_instagram(ig_page_id: str, recipient_id: str, mensaje: str):
+#     """Envía un mensaje directo de Instagram usando la Graph API de Meta (No Funciona)"""
+#     try:
+#         access_token = os.getenv('INSTAGRAM_ACCESS_TOKEN')
+#         if not access_token:
+#             logger.error("❌ INSTAGRAM_ACCESS_TOKEN no configurado")
+#             return False
+
+#         url = f"https://graph.facebook.com/v25.0/{ig_page_id}/messages"
+
+#         # Límite de 1000 caracteres para IG DM
+#         mensaje_truncado = mensaje[:1000]
+
+#         payload = {
+#             "recipient": {"id": recipient_id},
+#             "message": {"text": mensaje_truncado},
+#             "messaging_type": "RESPONSE"         
+#         }
+
+#         headers = {
+#             "Authorization": f"Bearer {access_token}",
+#             "Content-Type": "application/json"
+#         }
+
+#         response = requests.post(url, headers=headers, json=payload, timeout=10)
+
+#         if response.status_code == 200:
+#             result = response.json()
+#             logger.info(f"📨 DM IG enviado: {result.get('message_id', result)}")
+#             return True
+#         else:
+#             logger.error(f"❌ Error al enviar DM en IG: {response.status_code} - {response.text}")
+#             return False
+
+#     except requests.exceptions.Timeout:
+#         logger.error(f"🔴 Timeout al enviar DM IG a {recipient_id}")
+#         return False
+#     except Exception as e:
+#         logger.error(f"🔴 Error en enviar_dm_instagram: {e}")
+#         return False
 # ==================== FIN WEBHOOK INSTAGRAM ====================
 
 
-# Endpoint para borrar memoria de un usuario específico
-@app.route('/borrar_memoria', methods=['DELETE'])
-def borrar_memoria():
-    """Endpoint para borrar la memoria de un usuario específico."""    
+# # Endpoint para borrar memoria de un usuario específico
+# @app.route('/borrar_memoria', methods=['DELETE'])
+# def borrar_memoria():
+#     """Endpoint para borrar la memoria de un usuario específico."""    
 
-    try:
-        logger.debug("[RCV <- WEB] Received Endpoint \"borrar_memoria\" payload: {}", request.data[:500])  
-        data = request.json
-        # Necesitamos reconstruir el thread_id para saber qué borrar
-        user_id = data.get('user_id')
-        business_id = data.get('business_id')
-        logger.info(f"Request to delete memory for business_id={business_id}, user_id={user_id}")
-        if not user_id or not business_id:
-            return jsonify({"error": "Faltan IDs"}), 400
+#     try:
+#         logger.debug("[RCV <- WEB] Received Endpoint \"borrar_memoria\" payload: {}", request.data[:500])  
+#         data = request.json
+#         # Necesitamos reconstruir el thread_id para saber qué borrar
+#         user_id = data.get('user_id')
+#         business_id = data.get('business_id')
+#         logger.info(f"Request to delete memory for business_id={business_id}, user_id={user_id}")
+#         if not user_id or not business_id:
+#             return jsonify({"error": "Faltan IDs"}), 400
 
-        thread_id = f"{business_id}:{user_id}"
+#         thread_id = f"{business_id}:{user_id}"
 
-        with pool.connection() as conn:
-            # Usamos conn.cursor() para ejecutar SQL crudo
-            with conn.cursor() as cur:
-                # 1. Borrar checkpoints (el estado principal)
-                cur.execute(
-                    "DELETE FROM checkpoints WHERE thread_id = %s", 
-                    (thread_id,)
-                )
-                # 2. Borrar escrituras pendientes/auxiliares
-                cur.execute(
-                    "DELETE FROM checkpoint_writes WHERE thread_id = %s", 
-                    (thread_id,)
-                )
-                # 3. Borrar blobs (datos grandes serializados)
-                cur.execute(
-                    "DELETE FROM checkpoint_blobs WHERE thread_id = %s", 
-                    (thread_id,)
-                )
-                logger.info(f"Memoria borrada para thread_id={thread_id}")
+#         with pool.connection() as conn:
+#             # Usamos conn.cursor() para ejecutar SQL crudo
+#             with conn.cursor() as cur:
+#                 # 1. Borrar checkpoints (el estado principal)
+#                 cur.execute(
+#                     "DELETE FROM checkpoints WHERE thread_id = %s", 
+#                     (thread_id,)
+#                 )
+#                 # 2. Borrar escrituras pendientes/auxiliares
+#                 cur.execute(
+#                     "DELETE FROM checkpoint_writes WHERE thread_id = %s", 
+#                     (thread_id,)
+#                 )
+#                 # 3. Borrar blobs (datos grandes serializados)
+#                 cur.execute(
+#                     "DELETE FROM checkpoint_blobs WHERE thread_id = %s", 
+#                     (thread_id,)
+#                 )
+#                 logger.info(f"Memoria borrada para thread_id={thread_id}")
 
-        return jsonify({
-            "status": "MEMORIA_BORRADA", 
-            "message": f"Historial eliminado para {thread_id}"
-        })
+#         return jsonify({
+#             "status": "MEMORIA_BORRADA", 
+#             "message": f"Historial eliminado para {thread_id}"
+#         })
 
-    except Exception as e:
-        logger.error(f"🔴 Error borrando DB: {e}")
-        return jsonify({"error": "Error al borrar memoria"}), 500
+#     except Exception as e:
+#         logger.error(f"🔴 Error borrando DB: {e}")
+#         return jsonify({"error": "Error al borrar memoria"}), 500
 
 
-def ejecutar_reactivar_bot(business_id: str, user_id: str) -> bool:
-    """Función para ejecutar la reactivación del bot. Se puede llamar desde un script o tarea programada."""
-    try:
-        thread_id = f"{business_id}:{user_id}"
-        logger.info(f"🔄 Reactivando bot para {thread_id}")
+# def ejecutar_reactivar_bot(business_id: str, user_id: str) -> bool:
+#     """Función para ejecutar la reactivación del bot. Se puede llamar desde un script o tarea programada."""
+#     try:
+#         thread_id = f"{business_id}:{user_id}"
+#         logger.info(f"🔄 Reactivando bot para {thread_id}")
 
-        # Inyectamos un mensaje "falso" de Tool o System que contenga la clave "BOT_REACTIVADO"
-        # Usamos ToolMessage para que sea consistente con la lógica de herramientas
-        mensaje_reactivacion = ToolMessage(
-            content="✅ ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO. El humano ha terminado la intervención. Puedes volver a responder.",
-            tool_call_id="admin_override_action"
-        )
+#         # Inyectamos un mensaje "falso" de Tool o System que contenga la clave "BOT_REACTIVADO"
+#         # Usamos ToolMessage para que sea consistente con la lógica de herramientas
+#         mensaje_reactivacion = ToolMessage(
+#             content="✅ ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO. El humano ha terminado la intervención. Puedes volver a responder.",
+#             tool_call_id="admin_override_action"
+#         )
 
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "business_id": business_id
-            }
-        }
+#         config = {
+#             "configurable": {
+#                 "thread_id": thread_id,
+#                 "business_id": business_id
+#             }
+#         }
 
-        with pool.connection() as conn:
-            checkpointer = PostgresSaver(conn)
-            # Usamos update_state para inyectar el mensaje sin ejecutar el LLM
-            # Esto simplemente agrega el mensaje al historial
-            workflow_builder.compile(checkpointer=checkpointer).update_state(
-                config,
-                {"messages": [mensaje_reactivacion]},
-                as_node="chatbot" # O el nodo que corresponda
-            )
+#         with pool.connection() as conn:
+#             checkpointer = PostgresSaver(conn)
+#             # Usamos update_state para inyectar el mensaje sin ejecutar el LLM
+#             # Esto simplemente agrega el mensaje al historial
+#             workflow_builder.compile(checkpointer=checkpointer).update_state(
+#                 config,
+#                 {"messages": [mensaje_reactivacion]},
+#                 as_node="chatbot" # O el nodo que corresponda
+#             )
         
-        client_id = thread_id.split(':')[1].split('@')[0] if thread_id else "unknown"
-        msg = f"[---TOOL---] 🔧 ID: {client_id} - MSG: ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO"
-        generar_resumen_auditoria(business_id, msg)
-        logger.info(f"Bot reactivado exitosamente para {thread_id}")
-        return True
+#         client_id = thread_id.split(':')[1].split('@')[0] if thread_id else "unknown"
+#         msg = f"[---TOOL---] 🔧 ID: {client_id} - MSG: ACCIÓN ADMINISTRATIVA: BOT_REACTIVADO"
+#         generar_resumen_auditoria(business_id, msg)
+#         logger.info(f"Bot reactivado exitosamente para {thread_id}")
+#         return True
 
-    except Exception as e:
-        logger.error(f"🔴 Error ejecutando reactivación del bot: {e}")
-        return False
+#     except Exception as e:
+#         logger.error(f"🔴 Error ejecutando reactivación del bot: {e}")
+#         return False
 
-@app.route('/reactivar_bot_web', methods=['GET'])
-def reactivar_bot_web():
-    """
-    Reactiva al bot mediante Token Seguro (JWT).
-    Uso: /reactivar_bot?token=eyJ...
-    """
-    token = request.args.get('token')
+# @app.route('/reactivar_bot_web', methods=['GET'])
+# def reactivar_bot_web():
+#     """
+#     Reactiva al bot mediante Token Seguro (JWT).
+#     Uso: /reactivar_bot?token=eyJ...
+#     """
+#     token = request.args.get('token')
     
-    if not token:
-        return "❌ Error: Falta el token de seguridad.", 400
+#     if not token:
+#         return "❌ Error: Falta el token de seguridad.", 400
     
-    try:
-        # 🤖 DETECTAR SI ES UN BOT/CRAWLER (WhatsApp, Facebook, etc.)
-        user_agent = request.headers.get('User-Agent', '')
+#     try:
+#         # 🤖 DETECTAR SI ES UN BOT/CRAWLER (WhatsApp, Facebook, etc.)
+#         user_agent = request.headers.get('User-Agent', '')
         
-        # Log completo para debugging
-        logger.info(f"🔍 Reactivación solicitada - User-Agent: {user_agent}")
-        logger.info(f"🔍 Headers completos: {dict(request.headers)}")
+#         # Log completo para debugging
+#         logger.info(f"🔍 Reactivación solicitada - User-Agent: {user_agent}")
+#         logger.info(f"🔍 Headers completos: {dict(request.headers)}")
         
-        user_agent_lower = user_agent.lower()
-        is_crawler = any([
-            'whatsapp' in user_agent_lower,
-            'facebookexternalhit' in user_agent_lower,
-            'facebot' in user_agent_lower,
-            'bot' in user_agent_lower and 'google' in user_agent_lower,
-            'telegram' in user_agent_lower,
-            'slackbot' in user_agent_lower,
-            'preview' in user_agent_lower,
-            'crawler' in user_agent_lower,
-            'spider' in user_agent_lower,
-            # Patrones adicionales comunes
-            user_agent == '',  # User-Agent vacío suele ser crawler
-            'curl' in user_agent_lower,
-            'wget' in user_agent_lower,
-            user_agent_lower == 'node',  # Evolution API / WhatsApp preview fetcher
-            'read-aloud' in user_agent_lower,  # Google-Read-Aloud bot
-            'googlebot' in user_agent_lower,  # Google crawler
-        ])
+#         user_agent_lower = user_agent.lower()
+#         is_crawler = any([
+#             'whatsapp' in user_agent_lower,
+#             'facebookexternalhit' in user_agent_lower,
+#             'facebot' in user_agent_lower,
+#             'bot' in user_agent_lower and 'google' in user_agent_lower,
+#             'telegram' in user_agent_lower,
+#             'slackbot' in user_agent_lower,
+#             'preview' in user_agent_lower,
+#             'crawler' in user_agent_lower,
+#             'spider' in user_agent_lower,
+#             # Patrones adicionales comunes
+#             user_agent == '',  # User-Agent vacío suele ser crawler
+#             'curl' in user_agent_lower,
+#             'wget' in user_agent_lower,
+#             user_agent_lower == 'node',  # Evolution API / WhatsApp preview fetcher
+#             'read-aloud' in user_agent_lower,  # Google-Read-Aloud bot
+#             'googlebot' in user_agent_lower,  # Google crawler
+#         ])
         
-        # Si es un crawler, devolver solo metadata (Open Graph) sin ejecutar la acción
-        if is_crawler:
-            logger.warning(f"🤖 CRAWLER DETECTADO: {user_agent[:150]} - Bloqueando reactivación automática")
+#         # Si es un crawler, devolver solo metadata (Open Graph) sin ejecutar la acción
+#         if is_crawler:
+#             logger.warning(f"🤖 CRAWLER DETECTADO: {user_agent[:150]} - Bloqueando reactivación automática")
             
-            # URL de la imagen para el preview (puede ser personalizada por negocio)
-            preview_image_url = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/static/og-preview.png"
+#             # URL de la imagen para el preview (puede ser personalizada por negocio)
+#             preview_image_url = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/static/og-preview.png"
                    
-            return f"""
-            <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+#             return f"""
+#             <html>
+#                 <head>
+#                     <meta charset="UTF-8">
+#                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     
-                    <!-- Open Graph / WhatsApp Preview -->
-                    <meta property="fb:app_id" content="{os.getenv('META_APP_ID', '')}" />
-                    <meta property="og:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
-                    <meta property="og:description" content="Toca aquí para reactivar la conversación con el bot" />
-                    <meta property="og:type" content="website" />
-                    <meta property="og:image" content="{preview_image_url}" />
-                    <meta property="og:image:type" content="image/png" />
-                    <meta property="og:image:width" content="1200" />
-                    <meta property="og:image:height" content="630" />
-                    <meta property="og:image:alt" content="Reactivar Bot" />
+#                     <!-- Open Graph / WhatsApp Preview -->
+#                     <meta property="fb:app_id" content="{os.getenv('META_APP_ID', '')}" />
+#                     <meta property="og:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
+#                     <meta property="og:description" content="Toca aquí para reactivar la conversación con el bot" />
+#                     <meta property="og:type" content="website" />
+#                     <meta property="og:image" content="{preview_image_url}" />
+#                     <meta property="og:image:type" content="image/png" />
+#                     <meta property="og:image:width" content="1200" />
+#                     <meta property="og:image:height" content="630" />
+#                     <meta property="og:image:alt" content="Reactivar Bot" />
                     
-                    <!-- Twitter Card (por si acaso) -->
-                    <meta name="twitter:card" content="summary_large_image" />
-                    <meta name="twitter:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
-                    <meta name="twitter:description" content="Toca aquí para reactivar la conversación con el bot" />
-                    <meta name="twitter:image" content="{preview_image_url}" />
+#                     <!-- Twitter Card (por si acaso) -->
+#                     <meta name="twitter:card" content="summary_large_image" />
+#                     <meta name="twitter:title" content="🚨 *SOLICITUD DE ASISTENCIA*" />
+#                     <meta name="twitter:description" content="Toca aquí para reactivar la conversación con el bot" />
+#                     <meta name="twitter:image" content="{preview_image_url}" />
                     
-                    <!-- SEO -->
-                    <meta name="robots" content="noindex, nofollow" />
-                    <title>Reactivar Bot - SisAgent</title>
-                </head>
-                <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #f5f5f5;">
-                    <h1 style="color: #666;">⚠️ Preview Mode</h1>
-                    <p style="color: #999;">Este enlace debe ser abierto manualmente para activar la acción.</p>
-                    <p style="color: #ccc; font-size: 12px; margin-top: 40px;">Bot detection active</p>
-                </body>
-            </html>
-            """, 200
+#                     <!-- SEO -->
+#                     <meta name="robots" content="noindex, nofollow" />
+#                     <title>Reactivar Bot - SisAgent</title>
+#                 </head>
+#                 <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #f5f5f5;">
+#                     <h1 style="color: #666;">⚠️ Preview Mode</h1>
+#                     <p style="color: #999;">Este enlace debe ser abierto manualmente para activar la acción.</p>
+#                     <p style="color: #ccc; font-size: 12px; margin-top: 40px;">Bot detection active</p>
+#                 </body>
+#             </html>
+#             """, 200
         
-        # 1. Decodificar y Validar (Si esto pasa, los datos son auténticos)
-        logger.info(f"✅ Usuario real detectado (no crawler) - User-Agent: {user_agent[:100]}")
-        business_id, user_id = decodificar_token_reactivacion(token)
+#         # 1. Decodificar y Validar (Si esto pasa, los datos son auténticos)
+#         logger.info(f"✅ Usuario real detectado (no crawler) - User-Agent: {user_agent[:100]}")
+#         business_id, user_id = decodificar_token_reactivacion(token)
 
-        thread_id = f"{business_id}:{user_id}"
+#         thread_id = f"{business_id}:{user_id}"
         
-        # 2. Lógica de Reactivación (Igual que antes)
-        logger.info(f"🔓 Token validado. Reactivando {thread_id}")
+#         # 2. Lógica de Reactivación (Igual que antes)
+#         logger.info(f"🔓 Token validado. Reactivando {thread_id}")
 
-        if ejecutar_reactivar_bot(business_id, user_id):
-            return f"""
-            <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Bot Reactivado</title>
-                </head>
-                <body style="font-family: sans-serif; text-align: center; padding: 80px;">
-                    <h1 style="color: green;">✅ Bot Reactivado</h1>
-                    <p>El cliente <b>{user_id.split('@')[0]}</b> ya puede hablar con el Bot nuevamente.</p>
-                    <p style="color: #666;">Negocio: {thread_id.split(':')[0]}</p>
-                    <p style="color: #666;"><b>Puedes cerrar esta ventana.</b></p>
-                    <p id="message" style="color: #666; margin-top: 20px;"></p>
-                </body>
-            </html>
-            """, 200
-        else:
-            return jsonify({"error": "Error al reactivar el bot"}), 500
+#         if ejecutar_reactivar_bot(business_id, user_id):
+#             return f"""
+#             <html>
+#                 <head>
+#                     <meta charset="UTF-8">
+#                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+#                     <title>Bot Reactivado</title>
+#                 </head>
+#                 <body style="font-family: sans-serif; text-align: center; padding: 80px;">
+#                     <h1 style="color: green;">✅ Bot Reactivado</h1>
+#                     <p>El cliente <b>{user_id.split('@')[0]}</b> ya puede hablar con el Bot nuevamente.</p>
+#                     <p style="color: #666;">Negocio: {thread_id.split(':')[0]}</p>
+#                     <p style="color: #666;"><b>Puedes cerrar esta ventana.</b></p>
+#                     <p id="message" style="color: #666; margin-top: 20px;"></p>
+#                 </body>
+#             </html>
+#             """, 200
+#         else:
+#             return jsonify({"error": "Error al reactivar el bot"}), 500
 
-    except ValueError as ve:
-        # Error de token expirado o inválido
-        return f"<html><body style='text-align:center; color:red;'><h1>⛔ Enlace Inválido</h1><p>{str(ve)}</p></body></html>", 403
-    except Exception as e:
-        logger.exception(f"🔴 Error reactivando bot: {e}")
-        return "Error interno del servidor", 500
+#     except ValueError as ve:
+#         # Error de token expirado o inválido
+#         return f"<html><body style='text-align:center; color:red;'><h1>⛔ Enlace Inválido</h1><p>{str(ve)}</p></body></html>", 403
+#     except Exception as e:
+#         logger.exception(f"🔴 Error reactivando bot: {e}")
+#         return "Error interno del servidor", 500
 
 
-@app.route('/reactivar_bot', methods=['POST'])
-def reactivar_bot():
-    """
-    Inserta un mensaje de sistema invisible para 'despertar' al bot
-    después de una intervención humana.
-    """
-    try:
-        logger.debug("[RCV <- WEB] Received Endpoint \"reactivar_bot\" payload: {}", request.data[:500])  
-        data = request.json
-        user_id = data.get('user_id')
-        business_id = data.get('business_id')
+# @app.route('/reactivar_bot', methods=['POST'])
+# def reactivar_bot():
+#     """
+#     Inserta un mensaje de sistema invisible para 'despertar' al bot
+#     después de una intervención humana.
+#     """
+#     try:
+#         logger.debug("[RCV <- WEB] Received Endpoint \"reactivar_bot\" payload: {}", request.data[:500])  
+#         data = request.json
+#         user_id = data.get('user_id')
+#         business_id = data.get('business_id')
         
-        if not user_id or not business_id:
-            return jsonify({"error": "Faltan IDs"}), 400
+#         if not user_id or not business_id:
+#             return jsonify({"error": "Faltan IDs"}), 400
 
-        if ejecutar_reactivar_bot(business_id, user_id):
-            return jsonify({"status": "BOT_REACTIVADO", "message": "El bot volverá a responder mensajes nuevos."})
-        else:
-            return jsonify({"error": "Error al reactivar el bot"}), 500
+#         if ejecutar_reactivar_bot(business_id, user_id):
+#             return jsonify({"status": "BOT_REACTIVADO", "message": "El bot volverá a responder mensajes nuevos."})
+#         else:
+#             return jsonify({"error": "Error al reactivar el bot"}), 500
 
-    except Exception as e:
-        logger.exception(f"🔴 Error reactivando bot: {e}")
-        return jsonify({"error": str(e)}), 500
+#     except Exception as e:
+#         logger.exception(f"🔴 Error reactivando bot: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/chat', methods=['POST'])
@@ -1639,772 +1639,277 @@ def chat():
 
 from datetime import datetime, timedelta
 
-@app.route('/api/metrics', methods=['GET'])
-def get_business_metrics():
-    """
-    Endpoint para obtener métricas agregadas de un negocio.
-    Params:
-        - business_id (obligatorio)
-        - start_date (opcional, YYYY-MM-DD)
-        - end_date (opcional, YYYY-MM-DD)
-    """
-    try:
-        # 1. Obtener parámetros
-        business_id = request.args.get('business_id')
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
+# # ==============================================================================
+# # ENDPOINTS DE GESTIÓN DE CLIENTES (config_negocios.json)
+# # ==============================================================================
 
-        if not business_id:
-            return jsonify({"error": "Falta el parámetro 'business_id'"}), 400
+# @app.route('/api/get-tools', methods=['GET'])
+# def listar_tools():
+#     """Obtiene la lista completa de herramientas disponibles."""
+#     try:
+#         tools = obtener_todas_las_tools()
+#         logger.info(f"📋 Listando {len(tools)} herramientas (raw objects)")
 
-        # 2. Definir rango de fechas (Default: últimos 30 días)
-        if not end_date_str:
-            end_date = datetime.now()
-        else:
-            end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1) # Incluir el día completo
+#         # Obtener clientes que usan cada tool (desde config hot-reload)
+#         config = obtener_configuraciones()
+#         clients_map: dict = {}
+#         for business_id, conf in (config or {}).items():
+#             if not isinstance(conf, dict):
+#                 continue
+#             for t in conf.get('tools_habilitadas', []) or []:
+#                 if isinstance(t, str):
+#                     clients_map.setdefault(t, []).append(business_id)
 
-        if not start_date_str:
-            start_date = end_date - timedelta(days=30)
-        else:
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-
-        logger.info(f"📊 Consultando métricas para {business_id} desde {start_date} hasta {end_date}")
-
-        metrics = {
-            "period": {
-                "start": start_date.strftime('%Y-%m-%d'),
-                "end": end_date.strftime('%Y-%m-%d')
-            },
-            "summary": {},
-            "models_breakdown": [],
-            "sentiment_breakdown": {}
-        }
-
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                
-                # --- QUERY 1: RESUMEN GENERAL (KPIs) ---
-                sql_summary = """
-                    SELECT 
-                        COUNT(*) as total_interactions,
-                        COALESCE(SUM(input_tokens), 0) as total_input,
-                        COALESCE(SUM(output_tokens), 0) as total_output,
-                        COALESCE(SUM(estimated_cost), 0.0) as total_cost,
-                        COALESCE(AVG(latency_ms), 0)::INT as avg_latency
-                    FROM analytics_events 
-                    WHERE business_id = %s 
-                    AND timestamp >= %s AND timestamp < %s
-                """
-                cur.execute(sql_summary, (business_id, start_date, end_date))
-                row = cur.fetchone()
-                
-                metrics["summary"] = {
-                    "total_interactions": row[0],
-                    "total_input_tokens": row[1],
-                    "total_output_tokens": row[2],
-                    "total_tokens": row[1] + row[2],
-                    "total_cost_usd": round(row[3], 6),
-                    "avg_latency_ms": row[4]
-                }
-
-                # --- QUERY 2: DESGLOSE POR MODELO (Primary vs Backup) ---
-                sql_models = """
-                    SELECT model_name, COUNT(*), SUM(estimated_cost)
-                    FROM analytics_events 
-                    WHERE business_id = %s 
-                    AND timestamp >= %s AND timestamp < %s
-                    AND model_name IS NOT NULL
-                    GROUP BY model_name
-                    ORDER BY COUNT(*) DESC
-                """
-                cur.execute(sql_models, (business_id, start_date, end_date))
-                for m_row in cur.fetchall():
-                    metrics["models_breakdown"].append({
-                        "model": m_row[0],
-                        "usage_count": m_row[1],
-                        "cost": round(m_row[2] or 0, 6)
-                    })
-
-                # --- QUERY 3: SENTIMIENTO (Si lo estás guardando) ---
-                sql_sentiment = """
-                    SELECT sentiment_label, COUNT(*)
-                    FROM analytics_events 
-                    WHERE business_id = %s 
-                    AND timestamp >= %s AND timestamp < %s
-                    AND sentiment_label IS NOT NULL
-                    GROUP BY sentiment_label
-                """
-                cur.execute(sql_sentiment, (business_id, start_date, end_date))
-                for s_row in cur.fetchall():
-                    metrics["sentiment_breakdown"][s_row[0]] = s_row[1]
-
-        return jsonify(metrics)
-
-    except ValueError:
-        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
-    except Exception as e:
-        logger.exception(f"🔴 Error obteniendo métricas: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-@app.route('/api/dashboard', methods=['GET'])
-def get_dashboard():
-    """
-    Dashboard consolidado para el dueño de la plataforma.
-    Agrega métricas de rendimiento, seguridad, costos y uso de todos los negocios.
-
-    Query params:
-        - start_date  (opcional, YYYY-MM-DD) — default: últimos 30 días
-        - end_date    (opcional, YYYY-MM-DD) — default: hoy
-        - business_id (opcional) — filtrar por negocio específico
-
-    Requiere header:  X-Admin-Token: <ADMIN_TOKEN>
-    """
-    # --- Autenticación ---
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if admin_token:
-        token_header = request.headers.get("X-Admin-Token", "")
-        if token_header != admin_token:
-            logger.warning(f"[DASHBOARD] Acceso no autorizado desde {request.remote_addr}")
-            return jsonify({"error": "Unauthorized"}), 401
-
-    try:
-        # --- Parámetros de rango temporal ---
-        start_date_str = request.args.get('start_date')
-        end_date_str   = request.args.get('end_date')
-        business_id    = request.args.get('business_id')  # None = todos
-
-        end_date = (
-            datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
-            if end_date_str else datetime.utcnow()
-        )
-        start_date = (
-            datetime.strptime(start_date_str, '%Y-%m-%d')
-            if start_date_str else end_date - timedelta(days=30)
-        )
-
-        biz_filter     = "AND business_id = %s" if business_id else ""
-        biz_params_pre = (business_id,) if business_id else ()
-
-        logger.info(f"[DASHBOARD] Consulta: {start_date.date()} → {end_date.date()} | negocio: {business_id or 'todos'}")
-
-        dashboard = {
-            "period":      {"start": start_date.strftime('%Y-%m-%d'), "end": (end_date - timedelta(days=1)).strftime('%Y-%m-%d')},
-            "generated_at": datetime.utcnow().isoformat() + "Z",
-            "filters":     {"business_id": business_id or "all"},
-            "kpis":        {},
-            "performance": {},
-            "costs":       {},
-            "security":    {},
-            "usage":       {},
-            "businesses":  [],
-        }
-
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-
-                # ============================================================
-                # SECCIÓN 1 — KPIs GENERALES
-                # ============================================================
-                cur.execute(f"""
-                    SELECT
-                        COUNT(*)                                            AS total_events,
-                        COUNT(DISTINCT thread_id)                           AS unique_conversations,
-                        COUNT(DISTINCT business_id)                         AS active_businesses,
-                        COALESCE(SUM(input_tokens + output_tokens), 0)      AS total_tokens,
-                        COALESCE(SUM(estimated_cost), 0.0)                  AS total_cost_usd,
-                        COALESCE(AVG(latency_ms), 0)::INT                   AS avg_latency_ms,
-                        COUNT(*) FILTER (WHERE event_type = 'llm_fallback') AS fallback_count,
-                        COUNT(*) FILTER (WHERE event_type = 'transcription') AS transcription_count,
-                        COUNT(*) FILTER (WHERE event_type = 'image_analysis') AS image_count
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                """, (start_date, end_date) + biz_params_pre)
-                row = cur.fetchone()
-                total_events   = row[0] or 1  # evitar div/0
-                fallback_count = row[6] or 0
-                dashboard["kpis"] = {
-                    "total_events":          row[0],
-                    "unique_conversations":  row[1],
-                    "active_businesses":     row[2],
-                    "total_tokens":          row[3],
-                    "total_cost_usd":        round(row[4], 6),
-                    "avg_latency_ms":        row[5],
-                    "fallback_rate_pct":     round(fallback_count / total_events * 100, 2),
-                    "transcription_events":  row[7],
-                    "image_analysis_events": row[8],
-                }
-
-                # ============================================================
-                # SECCIÓN 2 — RENDIMIENTO
-                # ============================================================
-
-                # Latencia percentiles
-                cur.execute(f"""
-                    SELECT
-                        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms)::INT AS p50,
-                        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::INT AS p95,
-                        PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms)::INT AS p99,
-                        MAX(latency_ms)                                                 AS max_ms
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                """, (start_date, end_date) + biz_params_pre)
-                p = cur.fetchone()
-                dashboard["performance"]["latency_percentiles_ms"] = {
-                    "p50": p[0], "p95": p[1], "p99": p[2], "max": p[3]
-                }
-
-                # Latencia promedio por herramienta
-                cur.execute(f"""
-                    SELECT tool_name, AVG(latency_ms)::INT AS avg_ms, COUNT(*) AS calls
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                      AND tool_name IS NOT NULL
-                    {biz_filter}
-                    GROUP BY tool_name
-                    ORDER BY avg_ms DESC
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["performance"]["latency_by_tool"] = [
-                    {"tool": r[0], "avg_latency_ms": r[1], "calls": r[2]}
-                    for r in cur.fetchall()
-                ]
-
-                # Eventos por hora (throughput)
-                cur.execute(f"""
-                    SELECT DATE_TRUNC('hour', timestamp) AS hour, COUNT(*) AS events
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                    GROUP BY hour
-                    ORDER BY hour
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["performance"]["events_per_hour"] = [
-                    {"hour": r[0].isoformat(), "events": r[1]}
-                    for r in cur.fetchall()
-                ]
-
-                # Tasa de fallback diaria
-                cur.execute(f"""
-                    SELECT
-                        DATE(timestamp) AS day,
-                        COUNT(*) FILTER (WHERE event_type = 'llm_fallback') AS fallbacks,
-                        COUNT(*) AS total
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                    GROUP BY day ORDER BY day
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["performance"]["fallback_rate_daily"] = [
-                    {"date": str(r[0]), "fallbacks": r[1], "total": r[2],
-                     "rate_pct": round(r[1] / max(r[2], 1) * 100, 2)}
-                    for r in cur.fetchall()
-                ]
-
-                # ============================================================
-                # SECCIÓN 3 — COSTOS
-                # ============================================================
-
-                # Costo por día
-                cur.execute(f"""
-                    SELECT DATE(timestamp) AS day,
-                           SUM(estimated_cost)             AS cost,
-                           SUM(input_tokens + output_tokens) AS tokens
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                    GROUP BY day ORDER BY day
-                """, (start_date, end_date) + biz_params_pre)
-                rows_daily = cur.fetchall()
-                dashboard["costs"]["daily"] = [
-                    {"date": str(r[0]), "cost_usd": round(r[1] or 0, 6), "tokens": r[2] or 0}
-                    for r in rows_daily
-                ]
-
-                # Proyección mensual (extrapola el promedio diario al mes completo)
-                if rows_daily:
-                    avg_daily_cost = sum(r[1] or 0 for r in rows_daily) / len(rows_daily)
-                    days_in_month  = 30
-                    dashboard["costs"]["monthly_projection_usd"] = round(avg_daily_cost * days_in_month, 4)
-                else:
-                    dashboard["costs"]["monthly_projection_usd"] = 0.0
-
-                # Costo por modelo
-                cur.execute(f"""
-                    SELECT model_name,
-                           SUM(estimated_cost)               AS cost,
-                           SUM(input_tokens)                  AS input_t,
-                           SUM(output_tokens)                 AS output_t,
-                           COUNT(*)                           AS calls
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                      AND model_name IS NOT NULL
-                    {biz_filter}
-                    GROUP BY model_name
-                    ORDER BY cost DESC
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["costs"]["by_model"] = [
-                    {"model": r[0], "cost_usd": round(r[1] or 0, 6),
-                     "input_tokens": r[2] or 0, "output_tokens": r[3] or 0, "calls": r[4]}
-                    for r in cur.fetchall()
-                ]
-
-                # Costo por tipo de evento
-                cur.execute(f"""
-                    SELECT event_type, SUM(estimated_cost) AS cost, COUNT(*) AS calls
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                    GROUP BY event_type ORDER BY cost DESC
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["costs"]["by_event_type"] = [
-                    {"type": r[0], "cost_usd": round(r[1] or 0, 6), "calls": r[2]}
-                    for r in cur.fetchall()
-                ]
-
-                # Ratio input/output tokens (eficiencia de prompt)
-                cur.execute(f"""
-                    SELECT COALESCE(AVG(output_tokens::float / NULLIF(input_tokens, 0)), 0)
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                      AND event_type NOT IN ('transcription', 'image_analysis')
-                    {biz_filter}
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["costs"]["avg_output_input_ratio"] = round((cur.fetchone()[0] or 0), 3)
-
-                # ============================================================
-                # SECCIÓN 4 — SEGURIDAD
-                # ============================================================
-
-                # Tasa de derivaciones HITL (Human-in-the-loop)
-                cur.execute(f"""
-                    SELECT COUNT(*) FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                      AND tool_name = 'solicitar_atencion_humana'
-                    {biz_filter}
-                """, (start_date, end_date) + biz_params_pre)
-                hitl_count = cur.fetchone()[0] or 0
-                dashboard["security"]["hitl_escalations"]      = hitl_count
-                dashboard["security"]["hitl_rate_pct"]         = round(hitl_count / total_events * 100, 2)
-
-                # Negocios activos vs deshabilitados (desde config_negocios.json)
-                try:
-                    config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        config_data = json.load(f)
-                    enabled_count  = sum(1 for v in config_data.values() if isinstance(v, dict) and v.get('enabled', True))
-                    disabled_count = len(config_data) - enabled_count
-                    dashboard["security"]["businesses_enabled"]  = enabled_count
-                    dashboard["security"]["businesses_disabled"] = disabled_count
-                except Exception:
-                    dashboard["security"]["businesses_enabled"]  = None
-                    dashboard["security"]["businesses_disabled"] = None
-
-                # Top endpoints con errores de tools externas (Tienda Nube, N8N, etc.)
-                cur.execute(f"""
-                    SELECT tool_name, COUNT(*) AS errors
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                      AND event_type = 'tool_error'
-                    {biz_filter}
-                    GROUP BY tool_name ORDER BY errors DESC
-                    LIMIT 10
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["security"]["tool_errors"] = [
-                    {"tool": r[0], "errors": r[1]} for r in cur.fetchall()
-                ]
-
-                # ============================================================
-                # SECCIÓN 5 — USO Y ADOPTION
-                # ============================================================
-
-                # Usuarios únicos por día
-                cur.execute(f"""
-                    SELECT DATE(timestamp) AS day, COUNT(DISTINCT thread_id) AS users
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                    GROUP BY day ORDER BY day
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["usage"]["daily_unique_users"] = [
-                    {"date": str(r[0]), "users": r[1]} for r in cur.fetchall()
-                ]
-
-                # Top herramientas usadas
-                cur.execute(f"""
-                    SELECT tool_name, COUNT(*) AS calls
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                      AND tool_name IS NOT NULL
-                    {biz_filter}
-                    GROUP BY tool_name ORDER BY calls DESC
-                    LIMIT 15
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["usage"]["top_tools"] = [
-                    {"tool": r[0], "calls": r[1]} for r in cur.fetchall()
-                ]
-
-                # Distribución de tipos de evento
-                cur.execute(f"""
-                    SELECT event_type, COUNT(*) AS count
-                    FROM analytics_events
-                    WHERE timestamp >= %s AND timestamp < %s
-                    {biz_filter}
-                    GROUP BY event_type ORDER BY count DESC
-                """, (start_date, end_date) + biz_params_pre)
-                dashboard["usage"]["event_type_distribution"] = [
-                    {"type": r[0], "count": r[1]} for r in cur.fetchall()
-                ]
-
-                # ============================================================
-                # SECCIÓN 6 — DESGLOSE POR NEGOCIO (solo si no hay filtro)
-                # ============================================================
-                if not business_id:
-                    cur.execute("""
-                        SELECT
-                            business_id,
-                            COUNT(*)                                            AS events,
-                            COUNT(DISTINCT thread_id)                           AS conversations,
-                            COALESCE(SUM(estimated_cost), 0)                    AS cost_usd,
-                            COALESCE(AVG(latency_ms), 0)::INT                   AS avg_latency_ms,
-                            COUNT(*) FILTER (WHERE event_type = 'llm_fallback') AS fallbacks
-                        FROM analytics_events
-                        WHERE timestamp >= %s AND timestamp < %s
-                        GROUP BY business_id
-                        ORDER BY cost_usd DESC
-                    """, (start_date, end_date))
-                    dashboard["businesses"] = [
-                        {
-                            "business_id":    r[0],
-                            "events":         r[1],
-                            "conversations":  r[2],
-                            "cost_usd":       round(r[3], 6),
-                            "avg_latency_ms": r[4],
-                            "fallback_rate_pct": round(r[5] / max(r[1], 1) * 100, 2),
-                        }
-                        for r in cur.fetchall()
-                    ]
-
-        logger.info(f"[DASHBOARD] Respuesta generada exitosamente para periodo {start_date.date()} → {end_date.date()}")
-        return jsonify(dashboard), 200
-
-    except ValueError:
-        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
-    except Exception as e:
-        logger.exception(f"🔴 [DASHBOARD] Error generando dashboard: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/admin/wipe-analytics', methods=['POST'])
-def wipe_analytics():
-    """
-    Endpoint administrativo seguro para vaciar las tablas de analytics.
-
-    Requisitos de seguridad:
-      - Si `ADMIN_TOKEN` está presente en el entorno, se requiere el header
-        `X-Admin-Token` con ese valor.
-      - El cuerpo JSON debe contener `{"confirm": "I UNDERSTAND"}` para
-        evitar borrados accidentales.
-
-    Acción: ejecuta `TRUNCATE TABLE analytics_events RESTART IDENTITY CASCADE`.
-    """
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if admin_token:
-        token_header = request.headers.get("X-Admin-Token", "")
-        if token_header != admin_token:
-            logger.warning(f"[ADMIN] Intento no autorizado de wipe desde {request.remote_addr}")
-            return jsonify({"error": "Unauthorized"}), 401
-
-    try:
-        data = request.get_json(silent=True) or {}
-        if data.get("confirm") != "I UNDERSTAND":
-            return jsonify({"error": "Missing explicit confirmation. Send JSON {\"confirm\":\"I UNDERSTAND\"}"}), 400
-
-        # Ejecutar TRUNCATE de forma atómica
-        with pool.connection() as conn:
-            conn.execute("TRUNCATE TABLE analytics_events RESTART IDENTITY CASCADE")
-
-        logger.info(f"[ADMIN] analytics_events truncated by {request.remote_addr} (user-agent: {request.headers.get('User-Agent')})")
-        return jsonify({"status": "ok", "message": "analytics_events truncated"}), 200
-
-    except Exception as e:
-        logger.exception(f"🔴 [ADMIN] Error truncating analytics_events: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ==============================================================================
-# ENDPOINTS DE GESTIÓN DE CLIENTES (config_negocios.json)
-# ==============================================================================
-
-@app.route('/api/get-tools', methods=['GET'])
-def listar_tools():
-    """Obtiene la lista completa de herramientas disponibles."""
-    try:
-        tools = obtener_todas_las_tools()
-        logger.info(f"📋 Listando {len(tools)} herramientas (raw objects)")
-
-        # Obtener clientes que usan cada tool (desde config hot-reload)
-        config = obtener_configuraciones()
-        clients_map: dict = {}
-        for business_id, conf in (config or {}).items():
-            if not isinstance(conf, dict):
-                continue
-            for t in conf.get('tools_habilitadas', []) or []:
-                if isinstance(t, str):
-                    clients_map.setdefault(t, []).append(business_id)
-
-        tools_meta = []
-        for t in tools:
-            # Usar el atributo .name del tool object directamente
-            tool_name = getattr(t, 'name', None) or getattr(t, '__name__', str(t))
-            description = getattr(t, 'description', None) or (t.__doc__ if hasattr(t, '__doc__') else '')
+#         tools_meta = []
+#         for t in tools:
+#             # Usar el atributo .name del tool object directamente
+#             tool_name = getattr(t, 'name', None) or getattr(t, '__name__', str(t))
+#             description = getattr(t, 'description', None) or (t.__doc__ if hasattr(t, '__doc__') else '')
             
-            tools_meta.append({
-                "name": tool_name,
-                "description": description or "",
-                "module": getattr(t, '__module__', ''),
-                "clients": clients_map.get(tool_name, [])
-            })
+#             tools_meta.append({
+#                 "name": tool_name,
+#                 "description": description or "",
+#                 "module": getattr(t, '__module__', ''),
+#                 "clients": clients_map.get(tool_name, [])
+#             })
 
-        logger.info(f"📋 Entregando {len(tools_meta)} herramientas (serializables)")
-        return jsonify(tools_meta), 200
-    except Exception as e:
-        logger.exception(f"🔴 Error listando herramientas: {e}")
-        return jsonify({"error": str(e)}), 500
+#         logger.info(f"📋 Entregando {len(tools_meta)} herramientas (serializables)")
+#         return jsonify(tools_meta), 200
+#     except Exception as e:
+#         logger.exception(f"🔴 Error listando herramientas: {e}")
+#         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/config/clientes', methods=['GET'])
-def listar_clientes():
-    """Obtiene la lista completa de clientes."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+# @app.route('/api/config/clientes', methods=['GET'])
+# def listar_clientes():
+#     """Obtiene la lista completa de clientes."""
+#     try:
+#         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+#         with open(config_path, 'r', encoding='utf-8') as f:
+#             config = json.load(f)
         
-        logger.info(f"📋 Listando {len(config)} clientes")
-        return jsonify(config), 200
+#         logger.info(f"📋 Listando {len(config)} clientes")
+#         return jsonify(config), 200
         
-    except Exception as e:
-        logger.exception(f"🔴 Error listando clientes: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/config/clientes/<business_id>', methods=['GET'])
-def obtener_cliente(business_id):
-    """Obtiene la configuración de un cliente específico."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
-        if business_id not in config:
-            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
-            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
-        
-        logger.info(f"📄 Obteniendo configuración de cliente {business_id}")
-        return jsonify(config[business_id]), 200
-        
-    except Exception as e:
-        logger.exception(f"🔴 Error obteniendo cliente {business_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+#     except Exception as e:
+#         logger.exception(f"🔴 Error listando clientes: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/config/clientes/<business_id>', methods=['PUT'])
-def actualizar_cliente_completo(business_id):
-    """Actualiza completamente la configuración de un cliente (reemplaza todo)."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+# @app.route('/api/config/clientes/<business_id>', methods=['GET'])
+# def obtener_cliente(business_id):
+#     """Obtiene la configuración de un cliente específico."""
+#     try:
+#         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         
-        # Cargar configuración actual
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+#         with open(config_path, 'r', encoding='utf-8') as f:
+#             config = json.load(f)
         
-        if business_id not in config:
-            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
-            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+#         if business_id not in config:
+#             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+#             return jsonify({"error": f"Cliente {business_id} no existe"}), 404
         
-        # Obtener datos del request
-        nuevos_datos = request.json
-        if not nuevos_datos:
-            return jsonify({"error": "No se enviaron datos"}), 400
+#         logger.info(f"📄 Obteniendo configuración de cliente {business_id}")
+#         return jsonify(config[business_id]), 200
         
-        # Validar campos requeridos
-        campos_requeridos = ['nombre', 'ttl_sesion_minutos', 'admin_phone']
-        for campo in campos_requeridos:
-            if campo not in nuevos_datos:
-                return jsonify({"error": f"Campo requerido faltante: {campo}"}), 400
-        
-        # Reemplazar completamente
-        config[business_id] = nuevos_datos
-        
-        # Guardar archivo
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-        
-        logger.success(f"✅ Cliente {business_id} actualizado completamente")
-        return jsonify({
-            "status": "success",
-            "message": f"Cliente {business_id} actualizado",
-            "data": config[business_id]
-        }), 200
-        
-    except Exception as e:
-        logger.exception(f"🔴 Error actualizando cliente {business_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+#     except Exception as e:
+#         logger.exception(f"🔴 Error obteniendo cliente {business_id}: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/config/clientes/<business_id>', methods=['PATCH'])
-def actualizar_cliente_parcial(business_id):
-    """Actualiza parcialmente la configuración de un cliente (solo los campos enviados)."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+# @app.route('/api/config/clientes/<business_id>', methods=['PUT'])
+# def actualizar_cliente_completo(business_id):
+#     """Actualiza completamente la configuración de un cliente (reemplaza todo)."""
+#     try:
+#         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         
-        # Cargar configuración actual
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+#         # Cargar configuración actual
+#         with open(config_path, 'r', encoding='utf-8') as f:
+#             config = json.load(f)
         
-        if business_id not in config:
-            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
-            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+#         if business_id not in config:
+#             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+#             return jsonify({"error": f"Cliente {business_id} no existe"}), 404
         
-        # Obtener datos del request
-        actualizaciones = request.json
-        if not actualizaciones:
-            return jsonify({"error": "No se enviaron datos para actualizar"}), 400
+#         # Obtener datos del request
+#         nuevos_datos = request.json
+#         if not nuevos_datos:
+#             return jsonify({"error": "No se enviaron datos"}), 400
         
-        # Actualizar solo los campos enviados (merge recursivo para objetos anidados)
-        def merge_dicts(base, updates):
-            """Merge recursivo de diccionarios."""
-            for key, value in updates.items():
-                if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-                    merge_dicts(base[key], value)
-                else:
-                    base[key] = value
+#         # Validar campos requeridos
+#         campos_requeridos = ['nombre', 'ttl_sesion_minutos', 'admin_phone']
+#         for campo in campos_requeridos:
+#             if campo not in nuevos_datos:
+#                 return jsonify({"error": f"Campo requerido faltante: {campo}"}), 400
         
-        merge_dicts(config[business_id], actualizaciones)
+#         # Reemplazar completamente
+#         config[business_id] = nuevos_datos
         
-        # Guardar archivo
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+#         # Guardar archivo
+#         with open(config_path, 'w', encoding='utf-8') as f:
+#             json.dump(config, f, indent=2, ensure_ascii=False)
         
-        logger.success(f"✅ Cliente {business_id} actualizado parcialmente: {list(actualizaciones.keys())}")
-        return jsonify({
-            "status": "success",
-            "message": f"Cliente {business_id} actualizado",
-            "updated_fields": list(actualizaciones.keys()),
-            "data": config[business_id]
-        }), 200
+#         logger.success(f"✅ Cliente {business_id} actualizado completamente")
+#         return jsonify({
+#             "status": "success",
+#             "message": f"Cliente {business_id} actualizado",
+#             "data": config[business_id]
+#         }), 200
         
-    except Exception as e:
-        logger.exception(f"🔴 Error actualizando cliente {business_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+#     except Exception as e:
+#         logger.exception(f"🔴 Error actualizando cliente {business_id}: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/config/clientes/<business_id>', methods=['DELETE'])
-def eliminar_cliente(business_id):
-    """Elimina un cliente de la configuración."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+# @app.route('/api/config/clientes/<business_id>', methods=['PATCH'])
+# def actualizar_cliente_parcial(business_id):
+#     """Actualiza parcialmente la configuración de un cliente (solo los campos enviados)."""
+#     try:
+#         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         
-        # Cargar configuración actual
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+#         # Cargar configuración actual
+#         with open(config_path, 'r', encoding='utf-8') as f:
+#             config = json.load(f)
         
-        if business_id not in config:
-            logger.warning(f"⚠️ Cliente {business_id} no encontrado")
-            return jsonify({"error": f"Cliente {business_id} no existe"}), 404
+#         if business_id not in config:
+#             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+#             return jsonify({"error": f"Cliente {business_id} no existe"}), 404
         
-        # Guardar copia antes de eliminar
-        cliente_eliminado = config[business_id]
+#         # Obtener datos del request
+#         actualizaciones = request.json
+#         if not actualizaciones:
+#             return jsonify({"error": "No se enviaron datos para actualizar"}), 400
         
-        # Eliminar
-        del config[business_id]
+#         # Actualizar solo los campos enviados (merge recursivo para objetos anidados)
+#         def merge_dicts(base, updates):
+#             """Merge recursivo de diccionarios."""
+#             for key, value in updates.items():
+#                 if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+#                     merge_dicts(base[key], value)
+#                 else:
+#                     base[key] = value
         
-        # Guardar archivo
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+#         merge_dicts(config[business_id], actualizaciones)
         
-        logger.warning(f"🗑️ Cliente {business_id} eliminado")
-        return jsonify({
-            "status": "success",
-            "message": f"Cliente {business_id} eliminado",
-            "deleted_data": cliente_eliminado
-        }), 200
+#         # Guardar archivo
+#         with open(config_path, 'w', encoding='utf-8') as f:
+#             json.dump(config, f, indent=2, ensure_ascii=False)
         
-    except Exception as e:
-        logger.exception(f"🔴 Error eliminando cliente {business_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+#         logger.success(f"✅ Cliente {business_id} actualizado parcialmente: {list(actualizaciones.keys())}")
+#         return jsonify({
+#             "status": "success",
+#             "message": f"Cliente {business_id} actualizado",
+#             "updated_fields": list(actualizaciones.keys()),
+#             "data": config[business_id]
+#         }), 200
+        
+#     except Exception as e:
+#         logger.exception(f"🔴 Error actualizando cliente {business_id}: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/config/clientes', methods=['POST'])
-def crear_cliente():
-    """Crea un nuevo cliente en la configuración."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
+# @app.route('/api/config/clientes/<business_id>', methods=['DELETE'])
+# def eliminar_cliente(business_id):
+#     """Elimina un cliente de la configuración."""
+#     try:
+#         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         
-        # Cargar configuración actual
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+#         # Cargar configuración actual
+#         with open(config_path, 'r', encoding='utf-8') as f:
+#             config = json.load(f)
         
-        # Obtener datos del request
-        nuevos_datos = request.json
-        if not nuevos_datos:
-            return jsonify({"error": "No se enviaron datos"}), 400
+#         if business_id not in config:
+#             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
+#             return jsonify({"error": f"Cliente {business_id} no existe"}), 404
         
-        # Validar que se envíe el business_id
-        business_id = nuevos_datos.get('business_id')
-        if not business_id:
-            return jsonify({"error": "Campo 'business_id' es requerido"}), 400
+#         # Guardar copia antes de eliminar
+#         cliente_eliminado = config[business_id]
         
-        # Verificar que no exista
-        if business_id in config:
-            return jsonify({"error": f"Cliente {business_id} ya existe"}), 409
+#         # Eliminar
+#         del config[business_id]
         
-        # Validar campos requeridos
-        campos_requeridos = ['nombre', 'ttl_sesion_minutos', 'admin_phone']
-        for campo in campos_requeridos:
-            if campo not in nuevos_datos:
-                return jsonify({"error": f"Campo requerido faltante: {campo}"}), 400
+#         # Guardar archivo
+#         with open(config_path, 'w', encoding='utf-8') as f:
+#             json.dump(config, f, indent=2, ensure_ascii=False)
         
-        # Estructura por defecto si no se proporciona
-        nuevo_cliente = {
-            "nombre": nuevos_datos['nombre'],
-            "ttl_sesion_minutos": nuevos_datos['ttl_sesion_minutos'],
-            "admin_phone": nuevos_datos['admin_phone'],
-            "fuera_de_servicio": nuevos_datos.get('fuera_de_servicio', {
-                "activo": False,
-                "horario_inicio": "09:00",
-                "horario_fin": "18:00",
-                "dias_laborales": [1, 2, 3, 4, 5],
-                "zona_horaria": "America/Argentina/Buenos_Aires",
-                "mensaje": []
-            }),
-            "system_prompt": nuevos_datos.get('system_prompt', []),
-            "mensaje_HITL": nuevos_datos.get('mensaje_HITL', ""),
-            "mensaje_usuario_1": nuevos_datos.get('mensaje_usuario_1', []),
-            "tools_habilitadas": nuevos_datos.get('tools_habilitadas', [])
-        }
+#         logger.warning(f"🗑️ Cliente {business_id} eliminado")
+#         return jsonify({
+#             "status": "success",
+#             "message": f"Cliente {business_id} eliminado",
+#             "deleted_data": cliente_eliminado
+#         }), 200
         
-        # Agregar a la configuración
-        config[business_id] = nuevo_cliente
+#     except Exception as e:
+#         logger.exception(f"🔴 Error eliminando cliente {business_id}: {e}")
+#         return jsonify({"error": str(e)}), 500
+
+
+# @app.route('/api/config/clientes', methods=['POST'])
+# def crear_cliente():
+#     """Crea un nuevo cliente en la configuración."""
+#     try:
+#         config_path = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
         
-        # Guardar archivo
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+#         # Cargar configuración actual
+#         with open(config_path, 'r', encoding='utf-8') as f:
+#             config = json.load(f)
         
-        logger.success(f"✅ Cliente {business_id} creado exitosamente")
-        return jsonify({
-            "status": "success",
-            "message": f"Cliente {business_id} creado",
-            "data": nuevo_cliente
-        }), 201
+#         # Obtener datos del request
+#         nuevos_datos = request.json
+#         if not nuevos_datos:
+#             return jsonify({"error": "No se enviaron datos"}), 400
         
-    except Exception as e:
-        logger.exception(f"🔴 Error creando cliente: {e}")
-        return jsonify({"error": str(e)}), 500
+#         # Validar que se envíe el business_id
+#         business_id = nuevos_datos.get('business_id')
+#         if not business_id:
+#             return jsonify({"error": "Campo 'business_id' es requerido"}), 400
+        
+#         # Verificar que no exista
+#         if business_id in config:
+#             return jsonify({"error": f"Cliente {business_id} ya existe"}), 409
+        
+#         # Validar campos requeridos
+#         campos_requeridos = ['nombre', 'ttl_sesion_minutos', 'admin_phone']
+#         for campo in campos_requeridos:
+#             if campo not in nuevos_datos:
+#                 return jsonify({"error": f"Campo requerido faltante: {campo}"}), 400
+        
+#         # Estructura por defecto si no se proporciona
+#         nuevo_cliente = {
+#             "nombre": nuevos_datos['nombre'],
+#             "ttl_sesion_minutos": nuevos_datos['ttl_sesion_minutos'],
+#             "admin_phone": nuevos_datos['admin_phone'],
+#             "fuera_de_servicio": nuevos_datos.get('fuera_de_servicio', {
+#                 "activo": False,
+#                 "horario_inicio": "09:00",
+#                 "horario_fin": "18:00",
+#                 "dias_laborales": [1, 2, 3, 4, 5],
+#                 "zona_horaria": "America/Argentina/Buenos_Aires",
+#                 "mensaje": []
+#             }),
+#             "system_prompt": nuevos_datos.get('system_prompt', []),
+#             "mensaje_HITL": nuevos_datos.get('mensaje_HITL', ""),
+#             "mensaje_usuario_1": nuevos_datos.get('mensaje_usuario_1', []),
+#             "tools_habilitadas": nuevos_datos.get('tools_habilitadas', [])
+#         }
+        
+#         # Agregar a la configuración
+#         config[business_id] = nuevo_cliente
+        
+#         # Guardar archivo
+#         with open(config_path, 'w', encoding='utf-8') as f:
+#             json.dump(config, f, indent=2, ensure_ascii=False)
+        
+#         logger.success(f"✅ Cliente {business_id} creado exitosamente")
+#         return jsonify({
+#             "status": "success",
+#             "message": f"Cliente {business_id} creado",
+#             "data": nuevo_cliente
+#         }), 201
+        
+#     except Exception as e:
+#         logger.exception(f"🔴 Error creando cliente: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/ver-grafo', methods=['GET'])
@@ -2426,220 +1931,220 @@ def ver_grafo_png():
         return f"Error generando grafo: {str(e)}", 500
 
 
-@app.route('/dashboard', methods=['GET'])
-def ops_dashboard():
-    """Sirve el dashboard de operaciones de la plataforma.
-    Requiere header X-Admin-Token o query param ?token=<ADMIN_TOKEN> si está configurado.
-    """
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if admin_token:
-        token = (
-            request.headers.get("X-Admin-Token", "") or
-            request.args.get("token", "")
-        )
-        if token != admin_token:
-            logger.warning(f"[DASHBOARD] Acceso no autorizado desde {request.remote_addr}")
-            return jsonify({"error": "Unauthorized"}), 401
+# @app.route('/dashboard', methods=['GET'])
+# def ops_dashboard():
+#     """Sirve el dashboard de operaciones de la plataforma.
+#     Requiere header X-Admin-Token o query param ?token=<ADMIN_TOKEN> si está configurado.
+#     """
+#     admin_token = os.getenv("ADMIN_TOKEN", "")
+#     if admin_token:
+#         token = (
+#             request.headers.get("X-Admin-Token", "") or
+#             request.args.get("token", "")
+#         )
+#         if token != admin_token:
+#             logger.warning(f"[DASHBOARD] Acceso no autorizado desde {request.remote_addr}")
+#             return jsonify({"error": "Unauthorized"}), 401
 
-    logger.info(f"[DASHBOARD] Acceso al dashboard desde {request.remote_addr}")
-    return render_template("dashboard.html")
-
-
-# curl -sS http://localhost:5001/health
-# curl -sS http://sisagent.sisnova.org/health
-@app.route('/health', methods=['GET'])
-def status():
-    logger.info("🔍 Health check endpoint called")
-    return jsonify({"status": "ok"}), 200
+#     logger.info(f"[DASHBOARD] Acceso al dashboard desde {request.remote_addr}")
+#     return render_template("dashboard.html")
 
 
-@app.route("/ddos-stats", methods=['GET'])
-def ddos_stats():
-    """Endpoint de estadísticas de protección DDoS"""
-    if not DDOS_PROTECTION_ENABLED or not ddos_protection:
-        return jsonify({"enabled": False, "message": "DDoS protection disabled"})
-    return jsonify({"enabled": True, "stats": ddos_protection.get_stats()})
+# # curl -sS http://localhost:5001/health
+# # curl -sS http://sisagent.sisnova.org/health
+# @app.route('/health', methods=['GET'])
+# def status():
+#     logger.info("🔍 Health check endpoint called")
+#     return jsonify({"status": "ok"}), 200
 
 
-# Webhook para recibir código de autorización de Google Calendar OAuth
-@app.route('/oauth/calendar/callback', methods=['GET'])
-def calendar_oauth_callback():
-    """
-    Recibe el código de autorización de Google OAuth y completa la autenticación automáticamente.
-    Parámetros esperados: code, state (opcional), business_id (en state)
-    """
-    try:
-        logger.info(f"📨 Callback OAuth recibido") #{request}")
-        code = request.args.get('code')
-        state = request.args.get('state')
-        error = request.args.get('error')
-        
-        logger.info(f"📨 Callback OAuth recibido - Code: {code[:20] if code else None}... State: {state}")
-        
-        if error:
-            logger.error(f"❌ Error en OAuth: {error}")
-            return f"""
-            <html>
-                <head><title>Error - Autorización</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>❌ Error en la autorización</h1>
-                    <p>Hubo un problema: {error}</p>
-                    <p>Por favor, vuelve a intentarlo desde WhatsApp.</p>
-                </body>
-            </html>
-            """, 400
-        
-        if not code:
-            logger.error("❌ No se recibió código de autorización")
-            return """
-            <html>
-                <head><title>Error - Sin código</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>❌ Error</h1>
-                    <p>No se recibió el código de autorización.</p>
-                </body>
-            </html>
-            """, 400
-        
-        # Extraer business_id del state si está presente
-        business_id = "cliente1"  # Default
-        if state and ':' in state:
-            parts = state.split(':')
-            if len(parts) >= 2:
-                business_id = parts[1]
-        
-        # Limpiar cualquier corrupción de caracteres (por si acaso)
-        business_id = business_id.strip().rstrip(')*').strip()
-        
-        logger.info(f"🔐 Procesando autorización para business_id: {business_id}")
-        
-        # Importar la función de autenticación
-        from tools_calendar import authenticate_with_code
-        
-        # Autenticar y obtener credenciales
-        creds = authenticate_with_code(code)
-        
-        # Guardar token
-        if not os.path.exists("tokens_calendar"):
-            os.makedirs("tokens_calendar")
-        token_file = f"tokens_calendar/{business_id}_token.json"
-        with open(token_file, 'w') as token:
-            token.write(creds.to_json())
-        
-        logger.info(f"✅ Token guardado exitosamente para {business_id}")
-        
-        return f"""
-        <html>
-            <head>
-                <title>✅ Autorización Exitosa</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    body {{
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        margin: 0;
-                        padding: 20px;
-                        min-height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    }}
-                    .container {{
-                        background: white;
-                        border-radius: 20px;
-                        padding: 40px;
-                        max-width: 500px;
-                        box-shadow: 0 10px 50px rgba(0,0,0,0.3);
-                        text-align: center;
-                    }}
-                    h1 {{
-                        color: #10b981;
-                        font-size: 2.5em;
-                        margin: 0 0 20px 0;
-                    }}
-                    p {{
-                        color: #64748b;
-                        font-size: 1.1em;
-                        line-height: 1.6;
-                    }}
-                    .success-icon {{
-                        font-size: 5em;
-                        margin-bottom: 20px;
-                    }}
-                    .button {{
-                        background: #667eea;
-                        color: white;
-                        padding: 15px 30px;
-                        border-radius: 10px;
-                        text-decoration: none;
-                        display: inline-block;
-                        margin-top: 20px;
-                        font-weight: bold;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="success-icon">✅</div>
-                    <h1>¡Autorización Exitosa!</h1>
-                    <p><strong>Tu Google Calendar está conectado.</strong></p>
-                    <p>Ya puedes cerrar esta ventana y volver a WhatsApp para agendar tu cita.</p>
-                    <p style="font-size: 0.9em; color: #94a3b8; margin-top: 30px;">
-                        Business ID: {business_id}
-                    </p>
-                </div>
-            </body>
-        </html>
-        """, 200
-        
-    except Exception as e:
-        logger.error(f"❌ Error en callback OAuth: {e}")
-        return f"""
-        <html>
-            <head><title>Error - Autorización</title></head>
-            <body style="font-family: Arial; text-align: center; padding: 50px;">
-                <h1>❌ Error al procesar la autorización</h1>
-                <p>{str(e)}</p>
-                <p>Por favor, contacta con soporte.</p>
-            </body>
-        </html>
-        """, 500
+# @app.route("/ddos-stats", methods=['GET'])
+# def ddos_stats():
+#     """Endpoint de estadísticas de protección DDoS"""
+#     if not DDOS_PROTECTION_ENABLED or not ddos_protection:
+#         return jsonify({"enabled": False, "message": "DDoS protection disabled"})
+#     return jsonify({"enabled": True, "stats": ddos_protection.get_stats()})
 
 
-@app.route('/politica-privacidad')
-@app.route('/privacy')
-@app.route('/politica-de-privacidad')
-def privacy_policy():
-    logger.info("📄 Política de privacidad solicitada")
-    return render_template_string(politica_privacidad_html)
+# # Webhook para recibir código de autorización de Google Calendar OAuth
+# @app.route('/oauth/calendar/callback', methods=['GET'])
+# def calendar_oauth_callback():
+#     """
+#     Recibe el código de autorización de Google OAuth y completa la autenticación automáticamente.
+#     Parámetros esperados: code, state (opcional), business_id (en state)
+#     """
+#     try:
+#         logger.info(f"📨 Callback OAuth recibido") #{request}")
+#         code = request.args.get('code')
+#         state = request.args.get('state')
+#         error = request.args.get('error')
+        
+#         logger.info(f"📨 Callback OAuth recibido - Code: {code[:20] if code else None}... State: {state}")
+        
+#         if error:
+#             logger.error(f"❌ Error en OAuth: {error}")
+#             return f"""
+#             <html>
+#                 <head><title>Error - Autorización</title></head>
+#                 <body style="font-family: Arial; text-align: center; padding: 50px;">
+#                     <h1>❌ Error en la autorización</h1>
+#                     <p>Hubo un problema: {error}</p>
+#                     <p>Por favor, vuelve a intentarlo desde WhatsApp.</p>
+#                 </body>
+#             </html>
+#             """, 400
+        
+#         if not code:
+#             logger.error("❌ No se recibió código de autorización")
+#             return """
+#             <html>
+#                 <head><title>Error - Sin código</title></head>
+#                 <body style="font-family: Arial; text-align: center; padding: 50px;">
+#                     <h1>❌ Error</h1>
+#                     <p>No se recibió el código de autorización.</p>
+#                 </body>
+#             </html>
+#             """, 400
+        
+#         # Extraer business_id del state si está presente
+#         business_id = "cliente1"  # Default
+#         if state and ':' in state:
+#             parts = state.split(':')
+#             if len(parts) >= 2:
+#                 business_id = parts[1]
+        
+#         # Limpiar cualquier corrupción de caracteres (por si acaso)
+#         business_id = business_id.strip().rstrip(')*').strip()
+        
+#         logger.info(f"🔐 Procesando autorización para business_id: {business_id}")
+        
+#         # Importar la función de autenticación
+#         from tools_calendar import authenticate_with_code
+        
+#         # Autenticar y obtener credenciales
+#         creds = authenticate_with_code(code)
+        
+#         # Guardar token
+#         if not os.path.exists("tokens_calendar"):
+#             os.makedirs("tokens_calendar")
+#         token_file = f"tokens_calendar/{business_id}_token.json"
+#         with open(token_file, 'w') as token:
+#             token.write(creds.to_json())
+        
+#         logger.info(f"✅ Token guardado exitosamente para {business_id}")
+        
+#         return f"""
+#         <html>
+#             <head>
+#                 <title>✅ Autorización Exitosa</title>
+#                 <meta name="viewport" content="width=device-width, initial-scale=1">
+#                 <style>
+#                     body {{
+#                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+#                         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+#                         margin: 0;
+#                         padding: 20px;
+#                         min-height: 100vh;
+#                         display: flex;
+#                         align-items: center;
+#                         justify-content: center;
+#                     }}
+#                     .container {{
+#                         background: white;
+#                         border-radius: 20px;
+#                         padding: 40px;
+#                         max-width: 500px;
+#                         box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+#                         text-align: center;
+#                     }}
+#                     h1 {{
+#                         color: #10b981;
+#                         font-size: 2.5em;
+#                         margin: 0 0 20px 0;
+#                     }}
+#                     p {{
+#                         color: #64748b;
+#                         font-size: 1.1em;
+#                         line-height: 1.6;
+#                     }}
+#                     .success-icon {{
+#                         font-size: 5em;
+#                         margin-bottom: 20px;
+#                     }}
+#                     .button {{
+#                         background: #667eea;
+#                         color: white;
+#                         padding: 15px 30px;
+#                         border-radius: 10px;
+#                         text-decoration: none;
+#                         display: inline-block;
+#                         margin-top: 20px;
+#                         font-weight: bold;
+#                     }}
+#                 </style>
+#             </head>
+#             <body>
+#                 <div class="container">
+#                     <div class="success-icon">✅</div>
+#                     <h1>¡Autorización Exitosa!</h1>
+#                     <p><strong>Tu Google Calendar está conectado.</strong></p>
+#                     <p>Ya puedes cerrar esta ventana y volver a WhatsApp para agendar tu cita.</p>
+#                     <p style="font-size: 0.9em; color: #94a3b8; margin-top: 30px;">
+#                         Business ID: {business_id}
+#                     </p>
+#                 </div>
+#             </body>
+#         </html>
+#         """, 200
+        
+#     except Exception as e:
+#         logger.error(f"❌ Error en callback OAuth: {e}")
+#         return f"""
+#         <html>
+#             <head><title>Error - Autorización</title></head>
+#             <body style="font-family: Arial; text-align: center; padding: 50px;">
+#                 <h1>❌ Error al procesar la autorización</h1>
+#                 <p>{str(e)}</p>
+#                 <p>Por favor, contacta con soporte.</p>
+#             </body>
+#         </html>
+#         """, 500
 
 
-@app.route('/')
-def home():
-    base_url = os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SisAgent _ Asistente Virtual</title>
-  <!-- Open Graph / WhatsApp link preview -->
-  <meta property="fb:app_id"       content="{os.getenv('META_APP_ID', '')}" />
-  <meta property="og:type"        content="website" />
-  <meta property="og:url"         content="{base_url}/" />
-  <meta property="og:title"       content="SisAgent Asistente Virtual" />
-  <meta property="og:description" content="Descubrí la nueva forma de interactuar con tu negocio a través de WhatsApp" />
-  <meta property="og:image"        content="{base_url}/static/og-preview.png" />
-  <meta property="og:image:type"   content="image/png" />
-  <meta property="og:image:width"  content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt"    content="SisAgent" />
-</head>
-<body style="font-family:sans-serif;text-align:center;padding:60px;">
-  <h1>Bienvenido a SisAgent</h1>
-  <p>Política de privacidad: <a href='/politica-privacidad'>/politica-privacidad</a></p>
-</body>
-</html>"""
+# @app.route('/politica-privacidad')
+# @app.route('/privacy')
+# @app.route('/politica-de-privacidad')
+# def privacy_policy():
+#     logger.info("📄 Política de privacidad solicitada")
+#     return render_template_string(politica_privacidad_html)
+
+
+# @app.route('/')
+# def home():
+#     base_url = os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')
+#     return f"""<!DOCTYPE html>
+# <html lang="es">
+# <head>
+#   <meta charset="UTF-8">
+#   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+#   <title>SisAgent _ Asistente Virtual</title>
+#   <!-- Open Graph / WhatsApp link preview -->
+#   <meta property="fb:app_id"       content="{os.getenv('META_APP_ID', '')}" />
+#   <meta property="og:type"        content="website" />
+#   <meta property="og:url"         content="{base_url}/" />
+#   <meta property="og:title"       content="SisAgent Asistente Virtual" />
+#   <meta property="og:description" content="Descubrí la nueva forma de interactuar con tu negocio a través de WhatsApp" />
+#   <meta property="og:image"        content="{base_url}/static/og-preview.png" />
+#   <meta property="og:image:type"   content="image/png" />
+#   <meta property="og:image:width"  content="1200" />
+#   <meta property="og:image:height" content="630" />
+#   <meta property="og:image:alt"    content="SisAgent" />
+# </head>
+# <body style="font-family:sans-serif;text-align:center;padding:60px;">
+#   <h1>Bienvenido a SisAgent</h1>
+#   <p>Política de privacidad: <a href='/politica-privacidad'>/politica-privacidad</a></p>
+# </body>
+# </html>"""
 
 
 # ==============================================================================
@@ -2647,213 +2152,213 @@ def home():
 # ==============================================================================
 
 # Configuraciones (poné en .env en producción)
-META_APP_ID = os.getenv("META_APP_ID", "TU_APP_ID")  # ID de tu app en Meta for Developers
-META_APP_SECRET = os.getenv("META_APP_SECRET", "TU_APP_SECRET")  # Si necesitás intercambiar code por token
-REDIRECT_URI = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/callback/whatsapp"  # Debe coincidir con Meta
+# META_APP_ID = os.getenv("META_APP_ID", "TU_APP_ID")  # ID de tu app en Meta for Developers
+# META_APP_SECRET = os.getenv("META_APP_SECRET", "TU_APP_SECRET")  # Si necesitás intercambiar code por token
+# REDIRECT_URI = f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/callback/whatsapp"  # Debe coincidir con Meta
 
-class EvolutionInstanceCreate(BaseModel):
-    instanceName: str
-    integration: str = "WHATSAPP-BUSINESS"
-    token: str  # Permanent Access Token
-    number: str  # Phone Number ID (ej: "123456789012345")
-    qrcode: bool = False  # No QR para Cloud API
-
-
-@app.route("/callback/whatsapp", methods=['GET'])
-def whatsapp_callback():
-    code = request.args.get('code')
-    waba_id = request.args.get('waba_id')
-    phone_number_id = request.args.get('phone_number_id')
-    error = request.args.get('error')
-    error_description = request.args.get('error_description')
-
-    if error:
-        logger.error(f"Error en Embedded Signup: {error} - {error_description}")
-        return f"<h1>Error: {error_description}</h1><p>Contacta soporte.</p>"
-
-    # Caso 1: Embedded Signup envía datos directamente via params (común en v4+ con helper)
-    if phone_number_id and waba_id:
-        logger.info(f"Recibidos directamente: Phone ID={phone_number_id}, WABA ID={waba_id}")
-        import asyncio
-        asyncio.run(create_evolution_instance(phone_number_id, waba_id))
-        return "<h1>¡Conexión exitosa!</h1><p>Tu WhatsApp está siendo configurado en Evolution. Redirigiendo...</p>"
-
-    # Caso 2: Viene 'code' → intercambiar por token y obtener datos (OAuth flow manual)
-    if code:
-        try:
-            token_url = "https://graph.facebook.com/v21.0/oauth/access_token"
-            params = {
-                "client_id": META_APP_ID,
-                "client_secret": META_APP_SECRET,
-                "redirect_uri": REDIRECT_URI,
-                "code": code
-            }
-            resp = requests.get(token_url, params=params)
-            resp.raise_for_status()
-            token_data = resp.json()
-            access_token = token_data.get("access_token")
-
-            graph_url = f"https://graph.facebook.com/v21.0/me?fields=whatsapp_business_accounts{{phone_numbers{{id,name}}}}&access_token={access_token}"
-            graph_resp = requests.get(graph_url)
-            graph_resp.raise_for_status()
-            data = graph_resp.json()
-
-            waba = data.get("whatsapp_business_accounts", {}).get("data", [{}])[0]
-            phone = waba.get("phone_numbers", {}).get("data", [{}])[0]
-            phone_number_id = phone.get("id")
-            waba_id = waba.get("id")
-
-            if not phone_number_id:
-                raise ValueError("No se encontró Phone Number ID")
-
-            logger.info(f"Obtenido via token: Phone ID={phone_number_id}, WABA ID={waba_id}")
-
-            import asyncio
-            asyncio.run(create_evolution_instance(phone_number_id, waba_id, access_token))
-            return "<h1>¡Éxito!</h1><p>Instancia creada en Evolution. Podés cerrar esta ventana.</p>"
-
-        except Exception as e:
-            logger.exception("Error procesando code")
-            return jsonify({"error": str(e)}), 500
-
-    return "<h1>Callback recibido, pero faltan parámetros. Intenta de nuevo.</h1>"
+# class EvolutionInstanceCreate(BaseModel):
+#     instanceName: str
+#     integration: str = "WHATSAPP-BUSINESS"
+#     token: str  # Permanent Access Token
+#     number: str  # Phone Number ID (ej: "123456789012345")
+#     qrcode: bool = False  # No QR para Cloud API
 
 
-@app.route("/onboard-whatsapp", methods=['GET'])
-def onboard_page():
-    logger.info("🔗 Página de onboarding solicitada")
-    return ONBOARDING_HTML
+# @app.route("/callback/whatsapp", methods=['GET'])
+# def whatsapp_callback():
+#     code = request.args.get('code')
+#     waba_id = request.args.get('waba_id')
+#     phone_number_id = request.args.get('phone_number_id')
+#     error = request.args.get('error')
+#     error_description = request.args.get('error_description')
+
+#     if error:
+#         logger.error(f"Error en Embedded Signup: {error} - {error_description}")
+#         return f"<h1>Error: {error_description}</h1><p>Contacta soporte.</p>"
+
+#     # Caso 1: Embedded Signup envía datos directamente via params (común en v4+ con helper)
+#     if phone_number_id and waba_id:
+#         logger.info(f"Recibidos directamente: Phone ID={phone_number_id}, WABA ID={waba_id}")
+#         import asyncio
+#         asyncio.run(create_evolution_instance(phone_number_id, waba_id))
+#         return "<h1>¡Conexión exitosa!</h1><p>Tu WhatsApp está siendo configurado en Evolution. Redirigiendo...</p>"
+
+#     # Caso 2: Viene 'code' → intercambiar por token y obtener datos (OAuth flow manual)
+#     if code:
+#         try:
+#             token_url = "https://graph.facebook.com/v21.0/oauth/access_token"
+#             params = {
+#                 "client_id": META_APP_ID,
+#                 "client_secret": META_APP_SECRET,
+#                 "redirect_uri": REDIRECT_URI,
+#                 "code": code
+#             }
+#             resp = requests.get(token_url, params=params)
+#             resp.raise_for_status()
+#             token_data = resp.json()
+#             access_token = token_data.get("access_token")
+
+#             graph_url = f"https://graph.facebook.com/v21.0/me?fields=whatsapp_business_accounts{{phone_numbers{{id,name}}}}&access_token={access_token}"
+#             graph_resp = requests.get(graph_url)
+#             graph_resp.raise_for_status()
+#             data = graph_resp.json()
+
+#             waba = data.get("whatsapp_business_accounts", {}).get("data", [{}])[0]
+#             phone = waba.get("phone_numbers", {}).get("data", [{}])[0]
+#             phone_number_id = phone.get("id")
+#             waba_id = waba.get("id")
+
+#             if not phone_number_id:
+#                 raise ValueError("No se encontró Phone Number ID")
+
+#             logger.info(f"Obtenido via token: Phone ID={phone_number_id}, WABA ID={waba_id}")
+
+#             import asyncio
+#             asyncio.run(create_evolution_instance(phone_number_id, waba_id, access_token))
+#             return "<h1>¡Éxito!</h1><p>Instancia creada en Evolution. Podés cerrar esta ventana.</p>"
+
+#         except Exception as e:
+#             logger.exception("Error procesando code")
+#             return jsonify({"error": str(e)}), 500
+
+#     return "<h1>Callback recibido, pero faltan parámetros. Intenta de nuevo.</h1>"
 
 
-# Endpoint principal de onboarding: recibe code + phone_number_id + waba_id desde el frontend
-# El frontend los obtiene: code via FB.login() callback, phone_number_id/waba_id via postMessage
-@app.route("/api/onboard-whatsapp", methods=['POST'])
-def receive_embedded_data():
-    data = request.json or {}
-    code = data.get('code')
-    phone_number_id = data.get('phone_number_id')
-    waba_id = data.get('waba_id')
-    business_id = data.get('business_id')
-
-    if not code or not phone_number_id or not waba_id:
-        return jsonify({"status": "error", "error": "Faltan datos requeridos (code, phone_number_id, waba_id)"}), 400
-
-    logger.info(f"📨 Onboarding iniciado: Phone ID={phone_number_id}, WABA ID={waba_id}")
-
-    try:
-        # Paso 1: Intercambiar el código de autorización por un access token
-        # El code tiene TTL de 30s, hacerlo de inmediato
-        token_resp = requests.get(
-            f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/oauth/access_token",
-            params={
-                "client_id": META_APP_ID,
-                "client_secret": META_APP_SECRET,
-                "code": code
-                # Nota: NO incluir redirect_uri para el flow iniciado por FB.login()
-            },
-            timeout=15
-        )
-        token_resp.raise_for_status()
-        token_data = token_resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise ValueError(f"No se obtuvo access_token: {token_data}")
-        logger.info(f"✅ Token intercambiado para phone {phone_number_id}")
-
-        graph_headers = {"Authorization": f"Bearer {access_token}"}
-
-        # Paso 2: Registrar el número de teléfono para usar Cloud API
-        # Esto es obligatorio para que el número pueda enviar/recibir mensajes via Cloud API
-        register_resp = requests.post(
-            f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/{phone_number_id}/register",
-            headers=graph_headers,
-            json={"messaging_product": "whatsapp", "pin": "000000"},
-            timeout=15
-        )
-        if register_resp.status_code not in (200, 201):
-            logger.warning(f"⚠️ Registro de teléfono respondió {register_resp.status_code}: {register_resp.text}")
-        else:
-            logger.info(f"✅ Número {phone_number_id} registrado en Cloud API")
-
-        # Paso 3: Suscribir la app a los webhooks del WABA del cliente
-        # Necesario para recibir mensajes entrantes en nuestro webhook
-        subscribe_resp = requests.post(
-            f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/{waba_id}/subscribed_apps",
-            headers=graph_headers,
-            timeout=15
-        )
-        if subscribe_resp.status_code not in (200, 201):
-            logger.warning(f"⚠️ Suscripción webhooks respondió {subscribe_resp.status_code}: {subscribe_resp.text}")
-        else:
-            logger.info(f"✅ App suscrita a webhooks del WABA {waba_id}")
-
-        # Paso 4: Crear instancia en Evolution API con los datos del cliente
-        import asyncio
-        asyncio.run(create_evolution_instance(phone_number_id, waba_id, access_token))
-
-        return jsonify({
-            "status": "ok",
-            "message": "WhatsApp onboardeado exitosamente",
-            "phone_number_id": phone_number_id,
-            "waba_id": waba_id
-        })
-
-    except requests.HTTPError as e:
-        logger.exception(f"HTTP error en onboarding: {e.response.text if e.response else e}")
-        return jsonify({"status": "error", "error": str(e)}), 500
-    except Exception as e:
-        logger.exception("Error en onboarding completo")
-        return jsonify({"status": "error", "error": str(e)}), 500
+# @app.route("/onboard-whatsapp", methods=['GET'])
+# def onboard_page():
+#     logger.info("🔗 Página de onboarding solicitada")
+#     return ONBOARDING_HTML
 
 
-async def create_evolution_instance(phone_number_id: str, waba_id: str, access_token: str = None):
-    """
-    Crea instancia en Evolution API con WHATSAPP-BUSINESS.
-    Usa el permanent token (generado antes o aquí via System User).
-    """
-    # En producción: genera o usa un permanent token por cliente (mejor práctica)
-    # Por simplicidad, asumimos que usás un token permanente de System User con acceso al WABA
-    permanent_token = access_token or "TU_PERMANENT_TOKEN_CON_PERMISOS_AL_WABA_DEL_CLIENTE"
+# # Endpoint principal de onboarding: recibe code + phone_number_id + waba_id desde el frontend
+# # El frontend los obtiene: code via FB.login() callback, phone_number_id/waba_id via postMessage
+# @app.route("/api/onboard-whatsapp", methods=['POST'])
+# def receive_embedded_data():
+#     data = request.json or {}
+#     code = data.get('code')
+#     phone_number_id = data.get('phone_number_id')
+#     waba_id = data.get('waba_id')
+#     business_id = data.get('business_id')
 
-    payload = {
-        "instanceName": f"cliente-{phone_number_id[-6:]}",  # Nombre único
-        "integration": "WHATSAPP-BUSINESS",
-        "token": permanent_token,
-        "number": phone_number_id,  # ¡Este es el Phone Number ID!
-        "qrcode": False,            # No QR para Cloud API
-        "webhook": {
-            "url": f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/webhook/evoapi",
-            "enabled": True,
-            "events": ["MESSAGES_UPSERT"]
-            }
-    }
+#     if not code or not phone_number_id or not waba_id:
+#         return jsonify({"status": "error", "error": "Faltan datos requeridos (code, phone_number_id, waba_id)"}), 400
 
-    headers = {
-        "apikey": EVOLUTION_API_KEY,
-        "Content-Type": "application/json"
-    }
+#     logger.info(f"📨 Onboarding iniciado: Phone ID={phone_number_id}, WABA ID={waba_id}")
 
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                f"{EVOLUTION_API_URL}/instance/create",
-                json=payload,
-                headers=headers,
-                timeout=30.0
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            logger.info(f"Instancia creada en Evolution: {data}")
-            # Aquí podés guardar en tu DB: cliente → instanceName, instanceKey, etc.
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Error creando instancia: {e.response.text}")
-            raise
+#     try:
+#         # Paso 1: Intercambiar el código de autorización por un access token
+#         # El code tiene TTL de 30s, hacerlo de inmediato
+#         token_resp = requests.get(
+#             f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/oauth/access_token",
+#             params={
+#                 "client_id": META_APP_ID,
+#                 "client_secret": META_APP_SECRET,
+#                 "code": code
+#                 # Nota: NO incluir redirect_uri para el flow iniciado por FB.login()
+#             },
+#             timeout=15
+#         )
+#         token_resp.raise_for_status()
+#         token_data = token_resp.json()
+#         access_token = token_data.get("access_token")
+#         if not access_token:
+#             raise ValueError(f"No se obtuvo access_token: {token_data}")
+#         logger.info(f"✅ Token intercambiado para phone {phone_number_id}")
 
-# 3. Arrancar el Hilo Demonio junto con Flask para procesar tareas de contestación de comentarios de Instagram (si está habilitado)
-# 'daemon=True' asegura que el hilo muera automáticamente si apagas Flask
-if os.getenv('WORKER_INSTAGRAM_ENABLED', 'false').lower() == 'true':
-    hilo_ig = threading.Thread(target=worker_secuencial_instagram, daemon=True)
-    hilo_ig.start()
+#         graph_headers = {"Authorization": f"Bearer {access_token}"}
+
+#         # Paso 2: Registrar el número de teléfono para usar Cloud API
+#         # Esto es obligatorio para que el número pueda enviar/recibir mensajes via Cloud API
+#         register_resp = requests.post(
+#             f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/{phone_number_id}/register",
+#             headers=graph_headers,
+#             json={"messaging_product": "whatsapp", "pin": "000000"},
+#             timeout=15
+#         )
+#         if register_resp.status_code not in (200, 201):
+#             logger.warning(f"⚠️ Registro de teléfono respondió {register_resp.status_code}: {register_resp.text}")
+#         else:
+#             logger.info(f"✅ Número {phone_number_id} registrado en Cloud API")
+
+#         # Paso 3: Suscribir la app a los webhooks del WABA del cliente
+#         # Necesario para recibir mensajes entrantes en nuestro webhook
+#         subscribe_resp = requests.post(
+#             f"https://graph.facebook.com/{os.getenv('GRAPH_VERSION','v21.0')}/{waba_id}/subscribed_apps",
+#             headers=graph_headers,
+#             timeout=15
+#         )
+#         if subscribe_resp.status_code not in (200, 201):
+#             logger.warning(f"⚠️ Suscripción webhooks respondió {subscribe_resp.status_code}: {subscribe_resp.text}")
+#         else:
+#             logger.info(f"✅ App suscrita a webhooks del WABA {waba_id}")
+
+#         # Paso 4: Crear instancia en Evolution API con los datos del cliente
+#         import asyncio
+#         asyncio.run(create_evolution_instance(phone_number_id, waba_id, access_token))
+
+#         return jsonify({
+#             "status": "ok",
+#             "message": "WhatsApp onboardeado exitosamente",
+#             "phone_number_id": phone_number_id,
+#             "waba_id": waba_id
+#         })
+
+#     except requests.HTTPError as e:
+#         logger.exception(f"HTTP error en onboarding: {e.response.text if e.response else e}")
+#         return jsonify({"status": "error", "error": str(e)}), 500
+#     except Exception as e:
+#         logger.exception("Error en onboarding completo")
+#         return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# async def create_evolution_instance(phone_number_id: str, waba_id: str, access_token: str = None):
+#     """
+#     Crea instancia en Evolution API con WHATSAPP-BUSINESS.
+#     Usa el permanent token (generado antes o aquí via System User).
+#     """
+#     # En producción: genera o usa un permanent token por cliente (mejor práctica)
+#     # Por simplicidad, asumimos que usás un token permanente de System User con acceso al WABA
+#     permanent_token = access_token or "TU_PERMANENT_TOKEN_CON_PERMISOS_AL_WABA_DEL_CLIENTE"
+
+#     payload = {
+#         "instanceName": f"cliente-{phone_number_id[-6:]}",  # Nombre único
+#         "integration": "WHATSAPP-BUSINESS",
+#         "token": permanent_token,
+#         "number": phone_number_id,  # ¡Este es el Phone Number ID!
+#         "qrcode": False,            # No QR para Cloud API
+#         "webhook": {
+#             "url": f"{os.getenv('APP_BASE_URL', 'https://sisagent.sisnova.org')}/webhook/evoapi",
+#             "enabled": True,
+#             "events": ["MESSAGES_UPSERT"]
+#             }
+#     }
+
+#     headers = {
+#         "apikey": EVOLUTION_API_KEY,
+#         "Content-Type": "application/json"
+#     }
+
+#     async with httpx.AsyncClient() as client:
+#         try:
+#             resp = await client.post(
+#                 f"{EVOLUTION_API_URL}/instance/create",
+#                 json=payload,
+#                 headers=headers,
+#                 timeout=30.0
+#             )
+#             resp.raise_for_status()
+#             data = resp.json()
+#             logger.info(f"Instancia creada en Evolution: {data}")
+#             # Aquí podés guardar en tu DB: cliente → instanceName, instanceKey, etc.
+#         except httpx.HTTPStatusError as e:
+#             logger.error(f"Error creando instancia: {e.response.text}")
+#             raise
+
+# # 3. Arrancar el Hilo Demonio junto con Flask para procesar tareas de contestación de comentarios de Instagram (si está habilitado)
+# # 'daemon=True' asegura que el hilo muera automáticamente si apagas Flask
+# if os.getenv('WORKER_INSTAGRAM_ENABLED', 'false').lower() == 'true':
+#     hilo_ig = threading.Thread(target=worker_secuencial_instagram, daemon=True)
+#     hilo_ig.start()
 
 logger.info("✅ App Flask iniciada.")
 

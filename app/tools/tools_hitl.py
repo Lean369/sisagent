@@ -10,8 +10,8 @@ import datetime
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
-from utilities import obtener_configuraciones
-from logger_config import generar_resumen_auditoria
+from ..utils.utilities import obtener_configuraciones
+from ..logger_config import generar_resumen_auditoria
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
