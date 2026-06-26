@@ -856,7 +856,7 @@ Responde únicamente con el JSON, sin texto adicional."""
             
             model = os.getenv("VISION_MODEL", "gemini-3.5-flash")
             llm = ChatGoogleGenerativeAI(model=model, temperature=0)
-            llm_estructurado = llm.with_structured_output(ReciboTransferencia)
+            llm_estructurado = llm.with_structured_output(ReciboTransferencia, include_raw=True)
             
             # Si el base64 ya trae el prefijo "data:...", se lo quitamos para armarlo limpio
             # 1. Limpieza universal del prefijo
@@ -885,14 +885,23 @@ Responde únicamente con el JSON, sin texto adicional."""
             # 4. Creamos el mensaje final para LangGraph
             message = HumanMessage(content=contenido_mensaje)
 
-            respuesta_limpia = llm_estructurado.invoke([message])
+            # include_raw=True → {"raw": AIMessage, "parsed": ReciboTransferencia, "parsing_error": ...}
+            resultado = llm_estructurado.invoke([message])
+            respuesta_limpia = resultado.get("parsed")
+            raw_msg = resultado.get("raw")
+            parsing_error = resultado.get("parsing_error")
+
+            if parsing_error:
+                logger.warning(f"[IMAGE] Error de parsing estructurado: {parsing_error}")
+                return False, "❌ Error de parsing estructurado"
+
             logger.debug(f"Respuesta estructurada (objeto Pydantic): {respuesta_limpia}")
-            analysis = respuesta_limpia.model_dump()
-            
+            analysis = respuesta_limpia.model_dump() if respuesta_limpia else None
+
             latency_ms = int((time.time() - start_time) * 1000)
 
             logger.info(f"📊 [IMAGE] Análisis completado en {latency_ms}ms")
-            _lanzar_metricas_background(respuesta_limpia, thread_id, latency_ms, isLlmPrimary=True)
+            _lanzar_metricas_background(raw_msg, thread_id, latency_ms, isLlmPrimary=True)
         
         else:
             logger.error(f"❌ [IMAGE] Proveedor no soportado: {IMAGE_ANALYSIS_PROVIDER}")

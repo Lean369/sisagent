@@ -57,6 +57,12 @@ GOOGLE_CREDENTIALS_FILE=service-account.json
 ```
 
 ### 7. Compartir la hoja con la Service Account
+
+si da error de permisos:
+2026-06-25 21:35:52.754 | ERROR    | app.services.google_sheets:_escribir_en_sheets:120 - 🔴 [SHEETS] Error HTTP 403 de Google Sheets API: The caller does not have permission
+
+Debes compartir la hoja de Google Sheets con la service account:
+
 1. Abre tu hoja de Google Sheets
 2. Haz clic en "Compartir"
 3. Copia el email de la service account del archivo JSON (campo `client_email`)
@@ -66,7 +72,18 @@ GOOGLE_CREDENTIALS_FILE=service-account.json
 6. Desmarca "Notificar a las personas"
 7. Haz clic en "Compartir"
 
-### 8. Reiniciar el agente
+### 8. Verificar que la hoja funciona
+ 
+Si la Google Sheets API no está habilitada en el proyecto de Google Cloud.
+
+2026-06-25 21:29:51.161 | ERROR    | app.services.google_sheets:_escribir_en_sheets:120 - 🔴 [SHEETS] Error HTTP 403 de Google Sheets API: Google Sheets API has not been used in project 726646446648 before or it is disabled.
+
+Habilitala directamente desde este link (ya incluye el project ID del error):
+
+https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=726646446648
+
+
+### 10. Reiniciar el agente
 ```bash
 ./agent-manager.sh restart
 ```

@@ -3,6 +3,7 @@ import os
 import threading
 from datetime import datetime
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import json
 
 # Lock para evitar race conditions cuando múltiples threads escriben al mismo tiempo
@@ -102,12 +103,28 @@ def registrar_recibo_en_sheets(datos_recibo, extra) -> tuple:
         with _sheets_lock:
             return _escribir_en_sheets(sheets_service, valores)
 
+    except HttpError as e:
+        status = e.resp.status if hasattr(e, 'resp') else '?'
+        logger.error(f"🔴 [SHEETS] Error HTTP {status} de Google Sheets API: {e._get_reason()}")
+        return False, f"🔴 Error de Google Sheets API ({status})"
     except Exception as e:
         logger.exception(f"🔴 [SHEETS] Error registrando recibo en Google Sheets: {e}")
         return False, "🔴 Error registrando recibo en Google Sheets"
 
 
 def _escribir_en_sheets(sheets_service, valores) -> tuple:
+    try:
+        return _escribir_en_sheets_inner(sheets_service, valores)
+    except HttpError as e:
+        status = e.resp.status if hasattr(e, 'resp') else '?'
+        logger.error(f"🔴 [SHEETS] Error HTTP {status} de Google Sheets API: {e._get_reason()}")
+        return False, f"🔴 Error de Google Sheets API ({status})"
+    except Exception as e:
+        logger.error(f"🔴 [SHEETS] Error inesperado en _escribir_en_sheets: {e}")
+        return False, "🔴 Error inesperado escribiendo en Google Sheets"
+
+
+def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
         # Calcular next_row dentro del lock (operación atómica: leer→insertar→escribir)
         try:
             col_data = sheets_service.spreadsheets().values().get(
@@ -115,6 +132,8 @@ def _escribir_en_sheets(sheets_service, valores) -> tuple:
                 range='recibos!A:A'
             ).execute()
             next_row = len(col_data.get('values', [])) + 1
+        except HttpError:
+            raise
         except Exception:
             next_row = 2  # fallback: después de la cabecera
 
@@ -130,6 +149,8 @@ def _escribir_en_sheets(sheets_service, valores) -> tuple:
                 if operacion in existing:
                     logger.warning(f"[SHEETS] Operación '{operacion}' ya existe en la hoja. Se omite el registro duplicado.")
                     return False , f"❌ Operación {operacion} DUPLICADA."
+            except HttpError:
+                raise
             except Exception as e:
                 logger.warning(f"[SHEETS] No se pudo verificar duplicados en columna M: {e}")
 
@@ -150,8 +171,10 @@ def _escribir_en_sheets(sheets_service, valores) -> tuple:
                  if s.get('properties', {}).get('title') == 'recibos'),
                 None
             )
+        except HttpError:
+            raise
         except Exception as e:
-            logger.exception(f"🔴 [SHEETS] No fue posible obtener metadata del spreadsheet: {e}")
+            logger.error(f"🔴 [SHEETS] No fue posible obtener metadata del spreadsheet: {e}")
 
         # Insertar fila vacía heredando formato de la fila inferior (inheritFromBefore=False)
         if recibos_sheet_id is not None:
@@ -171,6 +194,8 @@ def _escribir_en_sheets(sheets_service, valores) -> tuple:
                     }]}
                 ).execute()
                 logger.debug(f"[SHEETS] Fila insertada en posición {next_row} con formato de fila inferior")
+            except HttpError:
+                raise
             except Exception as e:
                 logger.warning(f"[SHEETS] insertDimension falló, continuando con update directo. Error: {e}")
 

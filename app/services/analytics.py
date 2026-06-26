@@ -75,10 +75,13 @@ def registrar_evento(result, thread_id, latency_ms, isLlmPrimary=True):
 
         # 2. Extracción de Tokens
         usage = None
-        if hasattr(mensaje, 'response_metadata') and mensaje.response_metadata:
-            # Extraer token_usage o usage_metadata del response_metadata
+        # Primero: usage_metadata como atributo directo del AIMessage (Gemini, OpenAI via LangChain)
+        if hasattr(mensaje, 'usage_metadata') and mensaje.usage_metadata:
+            usage = mensaje.usage_metadata
+        elif hasattr(mensaje, 'response_metadata') and mensaje.response_metadata:
+            # Fallback: algunos providers lo anidan dentro de response_metadata
             usage = mensaje.response_metadata.get('token_usage') or mensaje.response_metadata.get('usage_metadata')
-        elif metadata: # Fallback a metadata antigua
+        elif metadata:
             usage = metadata.get('token_usage') or metadata.get('usage_metadata')
 
         # Manejo especial para métricas de transcripción (diccionarios)

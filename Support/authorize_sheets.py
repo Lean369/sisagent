@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script para autorizar Google Sheets manualmente
-Ejecutar: python3 authorize_sheets.py
+Ejecutar: cd /home/leanusr/sisagent && python3 Support/authorize_sheets.py
 """
 import os
 import pickle
