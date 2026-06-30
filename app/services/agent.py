@@ -30,7 +30,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 
 # --- Imports de Herramientas ---
 from ..services.cliente_config import ClienteConfig
-from ..utils.utilities import obtener_configuraciones, gestionar_expiracion_sesion
+from ..utils.utilities import get_app_configs, gestionar_expiracion_sesion
 from ..tools.tools_crm import trigger_booking_tool, consultar_stock, ver_menu
 from ..tools.tools_hitl import solicitar_atencion_humana
 from ..tools.tools_rag import consultar_base_conocimiento
@@ -327,14 +327,14 @@ def nodo_chatbot(state: State, config: RunnableConfig):
 # 3. DEFINICIÓN DE HERRAMIENTAS Y NODOS DE EJECUCIÓN
 # ==============================================================================
 
-def obtener_todas_las_tools() -> dict:
+def get_agent_tools() -> dict:
     """
     Retorna todas las herramientas únicas definidas en TOOLS_REGISTRY.
     """
     try:
         # Recolectar todos los nombres de tools_habilitadas de cada negocio
         avalilable_tools = set()
-        config_actual = obtener_configuraciones() 
+        config_actual = get_app_configs() 
         for negocio_conf in config_actual.values():
             if not isinstance(negocio_conf, dict):
                 continue
@@ -366,7 +366,7 @@ def obtener_todas_las_tools() -> dict:
         return []
 
 
-tool_node = ToolNode(obtener_todas_las_tools(), handle_tool_errors=True)
+tool_node = ToolNode(get_agent_tools(), handle_tool_errors=True)
 
 # Construcción del grafo. Se define la estructura del grafo una vez y es inmutable durante la ejecución.
 workflow_builder = StateGraph(State)

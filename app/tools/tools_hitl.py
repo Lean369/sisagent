@@ -10,7 +10,7 @@ import datetime
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
-from ..utils.utilities import obtener_configuraciones
+from ..utils.utilities import get_app_configs
 from ..logger_config import generar_resumen_auditoria
 from dotenv import load_dotenv
 

@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from langgraph.checkpoint.postgres import PostgresSaver
 from loguru import logger
-from ..utils.utilities import obtener_nombres_dias, obtener_configuraciones
+from ..utils.utilities import obtener_nombres_dias, get_app_configs
 
 
 class HorarioFueraServicio:
@@ -18,7 +18,7 @@ class HorarioFueraServicio:
 
 class ClienteConfig:
     def __init__(self, id_cliente):
-        config_actual = obtener_configuraciones() 
+        config_actual = get_app_configs() 
         data = config_actual.get(id_cliente)
         self.id_cliente = id_cliente
         self.nombre = data.get("nombre")

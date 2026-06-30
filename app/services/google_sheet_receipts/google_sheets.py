@@ -9,10 +9,46 @@ import json
 # Lock para evitar race conditions cuando múltiples threads escriben al mismo tiempo
 _sheets_lock = threading.Lock()
 
-
 GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'false').lower() == 'true'
-GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')
-GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
+
+# Variables globales internas para caché
+_CONFIG_CACHE = {}
+_LAST_MTIME = 0
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config_google_sheets.json')
+
+def get_google_sheets_configs():
+    """
+    Retorna la configuración. Si el archivo cambió en disco, recarga automáticamente (hot reload).
+    """
+    global _CONFIG_CACHE, _LAST_MTIME
+
+    try:
+        # 1. Obtenemos la fecha de modificación actual del archivo
+        current_mtime = os.path.getmtime(_CONFIG_PATH)
+
+        # 2. Si la fecha es distinta a la última que leímos, recargamos
+        if current_mtime != _LAST_MTIME:
+            logger.info("🔄 Detectado cambio en config_google_sheets.json. Recargando...")
+            
+            with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                nuevas_configuraciones = json.load(f)
+            
+            # Validación simple (opcional)
+            if not isinstance(nuevas_configuraciones, dict):
+                raise ValueError("El JSON debe ser un diccionario.")
+
+            # Actualizamos caché y timestamp
+            _CONFIG_CACHE = nuevas_configuraciones
+            _LAST_MTIME = current_mtime
+            
+            logger.info(f"✅ Configuración recargada: {len(_CONFIG_CACHE)} negocios.")
+
+
+        return _CONFIG_CACHE
+
+    except Exception as e:
+        logger.exception(f"🔴 Error leyendo google_sheets config en caliente: {e}")
+        return _CONFIG_CACHE
 
 
 # Ejemplo conceptual del algoritmo de actualización usando gspread
@@ -24,23 +60,36 @@ def marcar_como_conciliado(hoja, numero_operacion):
         hoja.update_cell(celda.row, 7, "Conciliado ✅")
 
 
-def registrar_recibo_en_sheets(datos_recibo, extra) -> tuple:
+def write_record_sheets(datos_recibo, extra, thread_id) -> tuple:
     """
     Registra un nuevo recibo de transferencia en Google Sheets
     """
     try:
+        config = get_google_sheets_configs().get(thread_id)
+
         if not GOOGLE_SHEETS_ENABLED:
             logger.debug(f"[SHEETS] Google Sheets deshabilitado, omitiendo registro")
             return False, "Google Sheets deshabilitado"
+        else:
+            logger.debug(f"[SHEETS] Google Sheets habilitado, procesando registro para thread_id={thread_id}")
         
-        if not GOOGLE_SHEET_ID:
-            logger.warning(f"[SHEETS] No hay GOOGLE_SHEET_ID configurado")
+        if not config or not config.get("GOOGLE_SHEET_ID"):
+            logger.warning(f"[SHEETS] No hay GOOGLE_SHEET_ID configurado para el thread {thread_id} en config_google_sheets.json")
             return False, "No hay GOOGLE_SHEET_ID configurado"
+        else:
+            logger.debug(f"[SHEETS] GOOGLE_SHEET_ID encontrado: {config.get('GOOGLE_SHEET_ID')} para thread_id={thread_id}")
         
-        sheets_service = get_sheets_service()
+        if not config or not config.get("GOOGLE_CREDENTIALS_FILE"):
+            logger.warning(f"[SHEETS] No hay GOOGLE_CREDENTIALS_FILE configurado para el thread {thread_id} en config_google_sheets.json")
+            return False, "No hay GOOGLE_CREDENTIALS_FILE configurado"
+        else:
+            logger.debug(f"[SHEETS] GOOGLE_CREDENTIALS_FILE encontrado: {config.get('GOOGLE_CREDENTIALS_FILE')} para thread_id={thread_id}")
+
+        sheets_service = get_sheets_service(config)
+
         if not sheets_service:
             logger.error(f"[SHEETS] Error autenticando Google Sheets")
-            return False, "Error autenticando Google Sheets"
+            return False, "❌ Error autenticando Google Sheets"
         
         import json
         if isinstance(datos_recibo, str):
@@ -48,7 +97,7 @@ def registrar_recibo_en_sheets(datos_recibo, extra) -> tuple:
                 datos_recibo = json.loads(datos_recibo)
             except json.JSONDecodeError:
                 logger.warning("[SHEETS] datos_recibo es una cadena no JSON; omitiendo registro")
-                return False, "datos_recibo es una cadena no JSON"
+                return False, "❌ datos_recibo es una cadena no JSON"
 
         # Helper para soportar tanto dict como objetos con atributos
         def _g(key: str):
@@ -101,7 +150,7 @@ def registrar_recibo_en_sheets(datos_recibo, extra) -> tuple:
 
         # Lock para serializar escrituras concurrentes y evitar filas vacías por race condition
         with _sheets_lock:
-            return _escribir_en_sheets(sheets_service, valores)
+            return _escribir_en_sheets(sheets_service, valores, config)
 
     except HttpError as e:
         status = e.resp.status if hasattr(e, 'resp') else '?'
@@ -112,9 +161,9 @@ def registrar_recibo_en_sheets(datos_recibo, extra) -> tuple:
         return False, "🔴 Error registrando recibo en Google Sheets"
 
 
-def _escribir_en_sheets(sheets_service, valores) -> tuple:
+def _escribir_en_sheets(sheets_service, valores, config) -> tuple:
     try:
-        return _escribir_en_sheets_inner(sheets_service, valores)
+        return _escribir_en_sheets_inner(sheets_service, valores, config)
     except HttpError as e:
         status = e.resp.status if hasattr(e, 'resp') else '?'
         logger.error(f"🔴 [SHEETS] Error HTTP {status} de Google Sheets API: {e._get_reason()}")
@@ -124,12 +173,13 @@ def _escribir_en_sheets(sheets_service, valores) -> tuple:
         return False, "🔴 Error inesperado escribiendo en Google Sheets"
 
 
-def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
+def _escribir_en_sheets_inner(sheets_service, valores, config) -> tuple:
         # Calcular next_row dentro del lock (operación atómica: leer→insertar→escribir)
         try:
+            spreadsheet_name = config.get("GOOGLE_SHEET_NAME")
             col_data = sheets_service.spreadsheets().values().get(
-                spreadsheetId=GOOGLE_SHEET_ID,
-                range='recibos!A:A'
+                spreadsheetId=config.get("GOOGLE_SHEET_ID"),
+                range=f'{spreadsheet_name}!A:A'
             ).execute()
             next_row = len(col_data.get('values', [])) + 1
         except HttpError:
@@ -142,8 +192,8 @@ def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
         if operacion:
             try:
                 col_m = sheets_service.spreadsheets().values().get(
-                    spreadsheetId=GOOGLE_SHEET_ID,
-                    range='recibos!M:M'
+                    spreadsheetId=config.get("GOOGLE_SHEET_ID"),
+                    range=f'{spreadsheet_name}!M:M'
                 ).execute()
                 existing = [row[0] for row in col_m.get('values', []) if row]
                 if operacion in existing:
@@ -161,14 +211,14 @@ def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
         # Verificar metadata y obtener sheetId numérico de la hoja 'recibos'
         recibos_sheet_id = None
         try:
-            meta = sheets_service.spreadsheets().get(spreadsheetId=GOOGLE_SHEET_ID).execute()
+            meta = sheets_service.spreadsheets().get(spreadsheetId=config.get("GOOGLE_SHEET_ID")).execute()
             sheet_titles = [s.get('properties', {}).get('title') for s in meta.get('sheets', [])]
             logger.debug(f"[SHEETS] Spreadsheet access OK. Sheets: {sheet_titles}")
-            if 'recibos' not in sheet_titles:
-                logger.warning("[SHEETS] Hoja 'recibos' no encontrada en el spreadsheet. Verifique el nombre o créela manualmente.")
+            if config.get("GOOGLE_SHEET_NAME") not in sheet_titles:
+                logger.warning(f"[SHEETS] Hoja '{config.get('GOOGLE_SHEET_NAME')}' no encontrada en el spreadsheet. Verifique el nombre o créela manualmente.")
             recibos_sheet_id = next(
                 (s['properties']['sheetId'] for s in meta.get('sheets', [])
-                 if s.get('properties', {}).get('title') == 'recibos'),
+                 if s.get('properties', {}).get('title') == config.get("GOOGLE_SHEET_NAME")),
                 None
             )
         except HttpError:
@@ -180,7 +230,7 @@ def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
         if recibos_sheet_id is not None:
             try:
                 sheets_service.spreadsheets().batchUpdate(
-                    spreadsheetId=GOOGLE_SHEET_ID,
+                    spreadsheetId=config.get("GOOGLE_SHEET_ID"),
                     body={"requests": [{
                         "insertDimension": {
                             "range": {
@@ -200,9 +250,10 @@ def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
                 logger.warning(f"[SHEETS] insertDimension falló, continuando con update directo. Error: {e}")
 
         # Escribir los valores en la fila recién insertada
+        spreadsheet_name = config.get("GOOGLE_SHEET_NAME")
         update_result = sheets_service.spreadsheets().values().update(
-            spreadsheetId=GOOGLE_SHEET_ID,
-            range=f'recibos!A{next_row}',
+            spreadsheetId=config.get("GOOGLE_SHEET_ID"),
+            range=f'{spreadsheet_name}!A{next_row}',
             valueInputOption='USER_ENTERED',
             body={'values': valores}
         ).execute()
@@ -217,7 +268,7 @@ def _escribir_en_sheets_inner(sheets_service, valores) -> tuple:
             return False, "⚠️ No se detectaron filas actualizadas"
 
 
-def get_sheets_service():
+def get_sheets_service(config):
     """
     Autentica y retorna el servicio de Google Sheets API
     Soporta tanto OAuth2 como Service Account
@@ -228,9 +279,9 @@ def get_sheets_service():
     try:
         
         SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-        
+        PATH = os.path.join(os.path.dirname(__file__), config.get("GOOGLE_CREDENTIALS_FILE"))
         # Verificar qué tipo de credenciales tenemos
-        with open(GOOGLE_CREDENTIALS_FILE, 'r') as f:
+        with open(PATH, 'r') as f:
             creds_data = json.load(f)
         
         # Si es Service Account
@@ -238,7 +289,7 @@ def get_sheets_service():
             logger.debug(f"[SHEETS] Usando Service Account")
             from google.oauth2.service_account import Credentials
             creds = Credentials.from_service_account_file(
-                GOOGLE_CREDENTIALS_FILE, scopes=SCOPES
+                PATH, scopes=SCOPES
             )
         
         # Si es OAuth2 (web o installed)
@@ -276,7 +327,7 @@ def get_sheets_service():
         return service
         
     except FileNotFoundError:
-        logger.exception(f"🔴 [SHEETS] Archivo {GOOGLE_CREDENTIALS_FILE} no encontrado")
+        logger.exception(f"🔴 [SHEETS] Archivo {PATH} no encontrado")
         return None
     except Exception as e:
         logger.exception(f"🔴 [SHEETS] Error autenticando Google Sheets: {e}")

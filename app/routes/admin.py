@@ -5,8 +5,8 @@ import json
 import psycopg
 from datetime import datetime, timedelta
 from loguru import logger
-from ..utils.utilities import obtener_configuraciones
-from ..services.agent import obtener_todas_las_tools
+from ..utils.utilities import get_app_configs
+from ..services.agent import get_agent_tools
 from ..services.agent import workflow_builder # Importamos el builder para crear el grafico de grafo
 from flask import Response
 from ..utils.ddos_protection import ddos_protection
@@ -460,11 +460,11 @@ def listar_tools():
     """
 
     try:
-        tools = obtener_todas_las_tools()
+        tools = get_agent_tools()
         logger.info(f"📋 Listando {len(tools)} herramientas (raw objects)")
 
         # Obtener clientes que usan cada tool (desde config hot-reload)
-        config = obtener_configuraciones()
+        config = get_app_configs()
         clients_map: dict = {}
         for business_id, conf in (config or {}).items():
             if not isinstance(conf, dict):
@@ -508,7 +508,7 @@ def listar_clientes():
     """
     try:
 
-        config = obtener_configuraciones()
+        config = get_app_configs()
 
         logger.info(f"📋 Listando {len(config)} clientes")
         return jsonify(config), 200
@@ -538,7 +538,7 @@ def obtener_cliente(business_id):
     """
     try:
 
-        config = obtener_configuraciones()
+        config = get_app_configs()
         
         if business_id not in config:
             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
@@ -583,7 +583,7 @@ def actualizar_cliente_completo(business_id):
         description: Client not found
     """
     try:
-        config = obtener_configuraciones()
+        config = get_app_configs()
         
         if business_id not in config:
             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
@@ -660,7 +660,7 @@ def actualizar_cliente_parcial(business_id):
         description: Client not found
     """
     try:
-        config = obtener_configuraciones()
+        config = get_app_configs()
         
         if business_id not in config:
             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
@@ -721,7 +721,7 @@ def eliminar_cliente(business_id):
         description: Client not found
     """
     try:
-        config = obtener_configuraciones()
+        config = get_app_configs()
         
         if business_id not in config:
             logger.warning(f"⚠️ Cliente {business_id} no encontrado")
@@ -785,7 +785,7 @@ def crear_cliente():
         description: Already exists
     """
     try:
-        config = obtener_configuraciones()
+        config = get_app_configs()
         
         # Obtener datos del request
         nuevos_datos = request.json

@@ -6,6 +6,7 @@ from .db import init_db
 import threading
 import os
 from .workers.instagram import worker_secuencial_instagram  
+from .utils.utilities import get_app_configs
 
 # Compat shim para Flask 3: exponer `Markup` en el módulo `flask` si falta
 try:
@@ -31,13 +32,18 @@ inicializar_logger()
 def create_app(config_object=None):
     # Load .env into environment so init_db can pick DB_HOST etc.
     load_dotenv()
+
     app = Flask(__name__, template_folder='templates', static_folder='static')
+    
     # Initialize Swagger only if Flasgger is available and compatible
     if config_object:
         app.config.from_object(config_object)
 
     # inicializar DB/pools/servicios globales aquí
     init_db(app)
+
+    #Obtengo las configuraciones de la app
+    get_app_configs()
 
     if _HAS_FLASGGER:
         # Initialize Flasgger Swagger UI

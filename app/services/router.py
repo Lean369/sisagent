@@ -1,7 +1,7 @@
 from loguru import logger
 from ..services.agent import procesar_msg_agente_ia
 from ..services.evolution_multimedia import receipt_extractor_evolution, procesar_audio_evolution
-from ..services.google_sheets import registrar_recibo_en_sheets
+from ..services.google_sheet_receipts.google_sheets import write_record_sheets
 
 
 def route_text_message(business_id: str, user_id: str, mensaje: str, client_name: str = "", info_negocio: dict = None) -> str:
@@ -85,7 +85,7 @@ def route_image_message(business_id: str, user_id: str, mensaje: str, client_nam
             ret, response = receipt_extractor_evolution(business_id, user_id, mensaje)
             logger.debug(f"Ret: {ret}, Response: {response}, Extra: {extra}")
             if ret:
-                ret, response = registrar_recibo_en_sheets(response, extra)
+                ret, response = write_record_sheets(response, extra, thread_id)
                 if ret:
                     logger.info(f"✅ Recibo registrado en Google Sheets para thread_id: {thread_id}")
                     # Asegurar que siempre devolvemos un string (evita errores si response es dict/None)

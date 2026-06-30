@@ -14,7 +14,7 @@ _LAST_MTIME = 0
 #_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config_negocios.json')
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'services', 'config_negocios.json')
 
-def obtener_configuraciones():
+def get_app_configs():
     """
     Retorna la configuración. Si el archivo cambió en disco, recarga automáticamente (hot reload).
     """

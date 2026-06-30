@@ -1,0 +1,12 @@
+{
+  "cliente6:5491131376731@s.whatsapp.net": {
+    "GOOGLE_SHEET_ID": "1ZAS6-Cst_I43uz9t7s_wJvzOG_wSeXSKbI3PhF9HlKY",
+    "GOOGLE_CREDENTIALS_FILE": "srv_account_leandro.json",
+    "GOOGLE_SHEET_NAME": "recibos"
+  },
+  "cliente6:5491169717517@s.whatsapp.net": {
+    "GOOGLE_SHEET_ID": "1MkAoj6q_1RO1SEEkIxj3ack_tOhJvA_CmMnsrAq-3s8",
+    "GOOGLE_CREDENTIALS_FILE": "srv_account_sisnova.json",
+    "GOOGLE_SHEET_NAME": "recibos"
+  }
+}
