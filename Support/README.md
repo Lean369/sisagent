@@ -2172,3 +2172,46 @@ sudo ln -s /usr/share/zoneinfo/America/Argentina/Buenos_Aires /usr/share/zoneinf
 
 sudo systemctl restart postgresql && sleep 2 && sudo -u postgres psql -c "SET timezone TO 'America/Buenos_Aires'; SELECT now();"
 ```
+## Extracción de datos de comprobantes de transferencia
+
+El agente extrae campos estructurados desde imágenes y PDFs de comprobantes bancarios.
+
+Qué extrae:
+- `monto`, `operacion`, `fecha`, `hora`, `referencia`,
+- `banco_origen`, `banco_destino`,
+- `cuenta_origen`, `cuenta_destino`,
+- `concepto`, `nombre_emisor`, `nombre_receptor`
+
+Cómo funciona:
+- Para imágenes se envía `image_url` + prompt estructurado al LLM multimodal.
+- Para PDFs se convierte cada página a imagen con `pdf2image` (usa `pdftoppm` de `poppler`) y se envía cada página como `image_url`.
+- La respuesta se parsea a `ReciboTransferencia` (Pydantic). Campos críticos se validan en código (por ejemplo: `monto`, `cuenta_destino`, `fecha`, `operacion`).
+
+Salida:
+- `(True, parsed_dict)` en éxito (parsed_dict con campos o nulls).
+- `(False, "mensaje de error")` en fallo o análisis incompleto.
+
+Requisitos e instalación:
+- Python: instalar `pdf2image`:
+```bash
+pip install "pdf2image>=1.17.0"
+```
+- Sistema: instalar `poppler` (contiene `pdftoppm`), obligatorio para convertir PDFs:
+  - Debian/Ubuntu:
+  ```bash
+  sudo apt-get update && sudo apt-get install -y poppler-utils
+  ```
+  - macOS (Homebrew):
+  ```bash
+  brew install poppler
+  ```
+
+Variables de entorno relevantes:
+- `IMAGE_ANALYSIS_PROVIDER` (ej: `groq`, `openai`, `gemini`)
+- `GROQ_VISION_MODEL` (ej: `meta-llama/llama-4-scout-17b-16e-instruct`) — para Groq usar un modelo con soporte visión
+- `VISION_MODEL` — para `openai`/`gemini` cuando aplique
+
+Notas operativas:
+- El modelo debe soportar entradas multimodales (`image_url`). Modelos solo-texto rechazarán imágenes/PDFs.
+- El esquema Pydantic del tool permite campos opcionales para evitar errores de validación si algún campo falta en la imagen; la validación de negocio se ejecuta después en el código.
+
