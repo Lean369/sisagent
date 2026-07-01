@@ -34,7 +34,10 @@ def route_text_message(business_id: str, user_id: str, mensaje: str, client_name
         # ROUTER: Aquí es donde decidimos a qué ruta de procesamiento enviar el mensaje, dependiendo del negocio o cliente
         route_name, _ = router(thread_id, info_negocio)
 
-        if route_name == "receipt_extractor":
+        if route_name == "error":
+            response = "⚠️ No se pudo determinar la ruta para procesar tu solicitud. Por favor, intenta nuevamente más tarde."
+            logger.warning(f"🟡 Ruta no encontrada para thread_id: {thread_id}. Respuesta simulada.")
+        elif route_name == "receipt_extractor":
             response = "Para procesar tu recibo, por favor envíame una foto del comprobante de transferencia. 📸"
             logger.info(f"🚏 Ruta personalizada 'receipt_extractor' para thread_id: {thread_id}. Respuesta simulada.")
         else:
@@ -80,7 +83,10 @@ def route_image_message(business_id: str, user_id: str, mensaje: str, client_nam
 
         out =  "⚠️ No se pudo registrar el recibo. Reintenta nuevamente. 📄"
 
-        if route_name == "receipt_extractor":
+        if route_name == "error":
+            response = "⚠️ No se pudo determinar la ruta para procesar tu solicitud. Por favor, intenta nuevamente más tarde."
+            logger.warning(f"🟡 Ruta no encontrada para thread_id: {thread_id}. Respuesta simulada.")
+        elif route_name == "receipt_extractor":
             logger.info(f"🚏 Ruta personalizada 'receipt_extractor' para thread_id: {thread_id}.")
             ret, response = receipt_extractor_evolution(business_id, user_id, mensaje)
             logger.debug(f"Ret: {ret}, Response: {response}, Extra: {extra}")
@@ -133,7 +139,10 @@ def route_audio_message(business_id: str, user_id: str, mensaje: str, client_nam
         
         route_name, _ = router(thread_id, info_negocio)
 
-        if route_name == "receipt_extractor":
+        if route_name == "error":
+            response = "⚠️ No se pudo determinar la ruta para procesar tu solicitud. Por favor, intenta nuevamente más tarde."
+            logger.warning(f"🟡 Ruta no encontrada para thread_id: {thread_id}. Respuesta simulada.")
+        elif route_name == "receipt_extractor":
             response = "Para procesar tu recibo, por favor envíame una foto del comprobante de transferencia. 📸"
             logger.info(f"🚏 Ruta personalizada 'receipt_extractor' para thread_id: {thread_id}. Respuesta simulada.")
         else:
@@ -150,19 +159,26 @@ def route_audio_message(business_id: str, user_id: str, mensaje: str, client_nam
 
 
 def router(thread_id: str, info_negocio: dict = None) -> tuple:
-    # ROUTER: Aquí es donde decidimos a qué ruta de procesamiento enviar el mensaje, dependiendo del negocio o cliente
+    # ROUTER: Decide la ruta según la configuración del negocio.
+    # Soporta `info_negocio` como objeto con atributo `thread_id_router` o como dict.
     thread_id_router = None
 
-    thread_id_router = getattr(info_negocio, 'thread_id_router')
+    if info_negocio is None:
+        thread_id_router = None
+    elif isinstance(info_negocio, dict):
+        thread_id_router = info_negocio.get('thread_id_router')
+    else:
+        # objeto con atributo
+        thread_id_router = getattr(info_negocio, 'thread_id_router', None)
 
-    # Si no hay configuración, usamos un valor por defecto compatible
-    if thread_id_router is None:
-        thread_id_router = {"default": {"route": "default", "priority": 1, "extra": []}}
+    # Valor por defecto si no hay configuración válida
+    if not isinstance(thread_id_router, dict) or thread_id_router is None:
+        return "error", []
 
-    if not isinstance(thread_id_router, dict):
-        thread_id_router = {"default": {"route": "default", "priority": 1, "extra": []}}
-
-    route = thread_id_router.get(thread_id, "default")
+    # Obtener la ruta para el thread_id; si no existe, usar la entrada 'default'
+    route = thread_id_router.get(thread_id)
+    if route is None:
+        return "error", []
 
     route_name = route.get('route', 'default')
     extra = route.get('extra', [])

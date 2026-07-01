@@ -141,9 +141,8 @@ def write_record_sheets(datos_recibo, extra, thread_id) -> tuple:
             _g('cuenta_destino'),             # L: Cuenta de destino de la transferencia, 22 dígitos para CVU argentino
             _g('operacion'),                  # M: Número de operación de la transferencia
             _g('hora'),                       # N: Hora de la transferencia
-            _g('referencia'),                 # O: Referencia de la transferencia
-            _g('concepto'),                   # P: Concepto de la transferencia
-            timestamp                         # Q: Fecha/Hora
+            _g('concepto'),                   # O: Concepto de la transferencia
+            timestamp                         # P: Fecha/Hora
         ]]
 
         logger.info(f"[SHEETS] Registrando recibo de transferencia - Nombre Emisor: {_g('nombre_emisor')}, Nombre Receptor: {_g('nombre_receptor')}, Monto: {_g('monto')}")

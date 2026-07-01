@@ -8,9 +8,13 @@ from dotenv import load_dotenv
 from loguru import logger
 import sys
 import json
+import re
 import threading
 import base64
+import io
 from datetime import datetime
+from pdf2image import convert_from_bytes
+import warnings
 
 # --- Imports de IA ---
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -21,6 +25,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import ToolMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 # --- Imports de Grafo y DB ---
@@ -727,7 +733,6 @@ class ReciboTransferencia(BaseModel):
     operacion: str = Field(description="Número de operación de la transferencia")
     fecha: str = Field(description="Fecha de la transferencia")
     hora: str = Field(description="Hora de la transferencia")
-    referencia: str = Field(description="Referencia de la transferencia")
     banco_origen: str = Field(description="Banco de origen de la transferencia")
     banco_destino: str = Field(description="Banco de destino de la transferencia")
     cuenta_origen: str = Field(description="Cuenta de origen de la transferencia, 22 dígitos para CVU argentino")
@@ -764,46 +769,35 @@ def extract_transfer_receipt_data(image_buffer: bytes, thread_id: str, caption: 
         
         # Crear el prompt
         prompt_text = """
-Analiza este comprobante de transferencia bancaria y extrae los datos en formato JSON.
+Analizá este comprobante de transferencia bancaria y extraé 
+los datos en formato JSON.
 
-## INSTRUCCIONES CRÍTICAS PARA NÚMEROS
+## PROCESO OBLIGATORIO (en este orden)
 
-Los errores más comunes en este tipo de documentos son en secuencias 
-largas de números (CVU, número de operación). Sigue estos pasos:
+### PASO 1 — Extraé los CVU dígito a dígito ANTES del JSON
 
-1. **Lee cada dígito individualmente**, de izquierda a derecha, 
-   sin agrupar ni inferir.
-2. **Vuelve a leer** cada secuencia numérica larga una segunda vez 
-   para verificar que coincide exactamente con lo impreso.
-3. **Nunca completes ni corrijas** un número que parezca incompleto: 
-   si no puedes leerlo con certeza, usa null.
-4. Para CVU argentinos: deben tener exactamente **22 dígitos**.
-   Cuenta los dígitos antes de escribirlos.
+CVU_DESTINO_DIGITS: (escribí cada dígito separado por -)
+CVU_DESTINO_COUNT: (contá cuántos son)
 
-## CAMPOS A EXTRAER
+### PASO 2 — Validá
+- Si COUNT = 22 → usá el número junto en el JSON
+- Si COUNT ≠ 22 → escribí null y avisá el error
+
+### PASO 3 — Generá el JSON con estos campos
 
 - monto: solo dígitos enteros, sin separadores de miles, sin decimales ni símbolos.
   Si el valor visible es "1.590,00" o "1590.00" → extraer solo "1590".
   Nunca incluir coma, punto ni la parte decimal (ej: "159360", NO "159360.00" ni "159.360,00")
-- operacion: número de operación exacto, dígito a dígito
-- fecha: fecha de la operación (ej: 15/08/2024)
-- hora: hora en formato HH:MM
-- referencia: código alfanumérico exacto, distinguiendo 
-  mayúsculas, ceros (0) vs letra O, unos (1) vs letra I/L
+- operacion: número exacto dígito a dígito
+- fecha: DD/MM/AAAA
+- hora: HH:MM
 - banco_origen: banco que envía
 - banco_destino: banco que recibe
-- cuenta_origen: CVU/CBU completo (22 dígitos para CVU argentino)
-- cuenta_destino: CVU/CBU completo (22 dígitos para CVU argentino)
+- cuenta_origen: CVU/CBU completo
+- cuenta_destino: CVU/CBU completo (solo si COUNT fue 22)
 - concepto: motivo de la transferencia
 - nombre_emisor: nombre completo de quien envía
 - nombre_receptor: nombre completo de quien recibe
-
-## VALIDACIONES ANTES DE RESPONDER
-
-Antes de generar el JSON, verifica:
-- [ ] ¿cuenta_origen tiene 22 dígitos? Cuenta: _
-- [ ] ¿cuenta_destino tiene 22 dígitos? Cuenta: _
-- [ ] ¿Releí el número de operación dígito a dígito?
 
 Responde únicamente con el JSON, sin texto adicional."""
 
@@ -813,101 +807,94 @@ Responde únicamente con el JSON, sin texto adicional."""
         start_time = time.time()
         
         if IMAGE_ANALYSIS_PROVIDER == "openai":
-            logger.debug("[IMAGE] Usando OpenAI GPT-4o Vision")
-            from openai import OpenAI
-            from langchain_core.messages import HumanMessage
-            
-            OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-            openai_client = OpenAI(api_key=OPENAI_API_KEY)
-            
-            # Usar GPT-4o o GPT-4o-mini que soportan visión
-            model = os.getenv("VISION_MODEL", "gpt-4o-mini")
-            
-            response = openai_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt_text},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=500,
-                temperature=0.0
+            logger.debug("[IMAGE] Usando OpenAI Vision")
+            llm = ChatOpenAI(
+                model="gpt-5.4-mini",
+                reasoning_effort="medium",
+                temperature=0
             )
-            
-            latency_ms = int((time.time() - start_time) * 1000)
-            analysis = response.choices[0].message.content
-            
-            logger.info(f"📊 [IMAGE] Análisis completado en {latency_ms}ms")
-            _lanzar_metricas_background(response, thread_id, latency_ms, isLlmPrimary=True)
-            
+
+        elif IMAGE_ANALYSIS_PROVIDER == "groq":
+            logger.debug("[IMAGE] Usando Groq Vision")
+            llm = ChatGroq(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            temperature=0.0,
+            max_tokens=3000,
+            )
+
         elif IMAGE_ANALYSIS_PROVIDER == "gemini":
             logger.debug("[IMAGE] Usando Google Gemini Vision")
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            from langchain_core.messages import HumanMessage
-            
-            model = os.getenv("VISION_MODEL", "gemini-3.5-flash")
+            model = os.getenv("VISION_MODEL", "gemini-2.5-pro")
             llm = ChatGoogleGenerativeAI(model=model, temperature=0)
-            llm_estructurado = llm.with_structured_output(ReciboTransferencia, include_raw=True)
+        
+        else:
+            logger.error(f"❌ [IMAGE] Proveedor no soportado: {IMAGE_ANALYSIS_PROVIDER}")
+            return False, "❌ Proveedor no soportado"
+        
+        llm_estructurado = llm.with_structured_output(ReciboTransferencia, include_raw=True)
             
-            # Si el base64 ya trae el prefijo "data:...", se lo quitamos para armarlo limpio
-            # 1. Limpieza universal del prefijo
-            base64_limpio = image_base64
-            if "," in base64_limpio:
-                base64_limpio = base64_limpio.split(",")[1]
+        # Si el base64 ya trae el prefijo "data:...", se lo quitamos para armarlo limpio
+        # 1. Limpieza universal del prefijo
+        base64_limpio = image_base64
+        if "," in base64_limpio:
+            base64_limpio = base64_limpio.split(",")[1]
 
-            # 2. Inicializamos el contenido con el prompt de texto
-            contenido_mensaje = [{"type": "text", "text": prompt_text}]
+        # 2. Inicializamos el contenido con el prompt de texto
+        contenido_mensaje = [{"type": "text", "text": prompt_text}]
 
-            # 3. Evaluamos el tipo de archivo para inyectarlo con la sintaxis correcta
-            if mime_type.startswith("image/"):
-                # Sintaxis estándar para imágenes (JPEG, PNG, WEBP)
-                contenido_mensaje.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{base64_limpio}"}
-                })
-            else:
-                # Sintaxis nativa para documentos (application/pdf), audios o videos
+        # 3. Evaluamos el tipo de archivo para inyectarlo con la sintaxis correcta
+        if mime_type.startswith("image/"):
+            # Sintaxis estándar para imágenes (JPEG, PNG, WEBP)
+            contenido_mensaje.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{base64_limpio}"}
+            })
+        else:
+            # Convierte PDF a lista de imágenes para Groq (solo soporta image_url)
+            if IMAGE_ANALYSIS_PROVIDER == "openai" or IMAGE_ANALYSIS_PROVIDER == "groq":
+                images = convert_from_bytes(image_buffer, dpi=300)
+                for i, img in enumerate(images):
+                    buffered = io.BytesIO()
+                    img.save(buffered, format="PNG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                    contenido_mensaje.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{img_base64}",
+                            "detail": "high"
+                        }
+                    })
+            elif IMAGE_ANALYSIS_PROVIDER == "gemini":
                 contenido_mensaje.append({
                     "type": "media",
                     "mime_type": mime_type,
                     "data": base64_limpio
                 })
 
-            # 4. Creamos el mensaje final para LangGraph
-            message = HumanMessage(content=contenido_mensaje)
+        # Ejecución de parsing estructurado para validar campos obligatorios
+        from langchain_core.messages import HumanMessage
+        message = HumanMessage(content=contenido_mensaje)
 
-            # include_raw=True → {"raw": AIMessage, "parsed": ReciboTransferencia, "parsing_error": ...}
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
             resultado = llm_estructurado.invoke([message])
-            respuesta_limpia = resultado.get("parsed")
-            raw_msg = resultado.get("raw")
-            parsing_error = resultado.get("parsing_error")
 
-            if parsing_error:
-                logger.warning(f"[IMAGE] Error de parsing estructurado: {parsing_error}")
-                return False, "❌ Error de parsing estructurado"
+        respuesta_limpia = resultado.get("parsed")
+        raw_msg = resultado.get("raw")
+        parsing_error = resultado.get("parsing_error")
 
-            logger.debug(f"Respuesta estructurada (objeto Pydantic): {respuesta_limpia}")
-            analysis = respuesta_limpia.model_dump() if respuesta_limpia else None
+        if parsing_error:
+            logger.warning(f"[IMAGE] Error de parsing estructurado: {parsing_error}")
+            return False, "❌ Error de parsing estructurado"
 
-            latency_ms = int((time.time() - start_time) * 1000)
+        logger.debug(f"Respuesta estructurada (objeto Pydantic): {respuesta_limpia}")
+        analysis = respuesta_limpia.model_dump() if respuesta_limpia else None
 
-            logger.info(f"📊 [IMAGE] Análisis completado en {latency_ms}ms")
-            _lanzar_metricas_background(raw_msg, thread_id, latency_ms, isLlmPrimary=True)
-        
-        else:
-            logger.error(f"❌ [IMAGE] Proveedor no soportado: {IMAGE_ANALYSIS_PROVIDER}")
-            return False, "❌ Proveedor no soportado"
-        
-        
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(f"📊 [IMAGE] Análisis completado en {latency_ms}ms")
+        _lanzar_metricas_background(raw_msg, thread_id, latency_ms, isLlmPrimary=True)
+
         if analysis:
             # Normalizar a dict si es posible (para validar campos requeridos)
             parsed = None

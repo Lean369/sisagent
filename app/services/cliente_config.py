@@ -18,8 +18,9 @@ class HorarioFueraServicio:
 
 class ClienteConfig:
     def __init__(self, id_cliente):
-        config_actual = get_app_configs() 
-        data = config_actual.get(id_cliente)
+        config_actual = get_app_configs()
+        # Si no existe configuración para el id_cliente, usar diccionario vacío
+        data = config_actual.get(id_cliente) or {}
         self.id_cliente = id_cliente
         self.nombre = data.get("nombre")
         self.enabled = data.get("enabled", True)
