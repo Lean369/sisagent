@@ -7,6 +7,7 @@ import os
 import base64
 import io
 import json
+import requests
 from ..services.cliente_config import ClienteConfig
 from ..utils.ddos_protection import ddos_protection
 from ..services.agent import transcribir_audio

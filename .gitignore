@@ -15,6 +15,7 @@ chroma_db/
 documentos_negocio/
 tokens_calendar/
 config_negocios.json
+config_google_sheets.json
 
 # Google Calendar Credentials - NEVER COMMIT!
 credentials.json
@@ -48,3 +49,4 @@ service-account.json.sisnova
 srv_account_leandro.json
 srv_account_sisnova.json
 srv_account_vlshoes.json
+config_google_sheets.json

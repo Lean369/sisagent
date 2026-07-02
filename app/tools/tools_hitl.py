@@ -91,7 +91,7 @@ def solicitar_atencion_humana(motivo: str, config: RunnableConfig) -> str:
         nombre_cliente = configuration.get('client_name', 'desconocido')
 
         # Extraemos el teléfono del administrador desde el config dinámico (hot reload)
-        config_actual = obtener_configuraciones() 
+        config_actual = get_app_configs() 
         info_negocio = config_actual.get(business_id)
         admin_phone = info_negocio['admin_phone'] 
         mensaje_HITL = info_negocio.get('mensaje_HITL', "consulta derivada")

@@ -204,6 +204,10 @@ http://192.168.1.220:5000/reactivar_bot_web?token=eyJhbGciOiJIUzI1NiIsInR5cCI6Ik
 curl -X DELETE http://localhost:5000/api/borrar_memoria \
   -H "Content-Type: application/json" \
   -d '{"user_id":"5491131376731@s.whatsapp.net", "business_id":"cliente6"}'
+
+curl -X DELETE http://localhost:5001/api/borrar_memoria \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"web_leandrolagrifa@gmail.com", "business_id":"cliente1"}'
 ```
 
 4.  GET /admin/grafo-estados: Endpoint para visualizar el grafo de estados del agente en formato PNG.

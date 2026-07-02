@@ -173,12 +173,13 @@ def router(thread_id: str, info_negocio: dict = None) -> tuple:
 
     # Valor por defecto si no hay configuración válida
     if not isinstance(thread_id_router, dict) or thread_id_router is None:
+        logger.warning(f"🟡 Configuración de router no encontrada o inválida para thread_id: {thread_id}. Usando ruta por defecto.")
         return "error", []
 
     # Obtener la ruta para el thread_id; si no existe, usar la entrada 'default'
     route = thread_id_router.get(thread_id)
     if route is None:
-        return "error", []
+        return 'default', []
 
     route_name = route.get('route', 'default')
     extra = route.get('extra', [])

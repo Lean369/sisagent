@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 import threading
 import time
 from dotenv import load_dotenv
+from ..utils.utilities import get_app_configs
 
 # Cargar variables de entorno
 load_dotenv()
@@ -754,9 +755,12 @@ def trigger_booking_tool(rubro: str, cantidad_mensajes: int, config: RunnableCon
         lead_id = '0'  # Inicialmente sin lead_id
 
         # Enviar link de reserva con mensaje personalizado (esto es lo que ve el usuario inmediatamente)
-        config_actual = obtener_configuraciones() 
+        config_actual = get_app_configs() 
         info_negocio = config_actual.get(business_id)
+        # Formatea el resultado con saltos de linea
         resultado = info_negocio['mensaje_usuario_1'] if info_negocio else "No se encontró información del negocio."
+        if isinstance(resultado, list):
+            resultado = "\n".join(resultado)
         
         # Registrar datos del lead para CRM y Google Sheets
         user_lead_info = {
